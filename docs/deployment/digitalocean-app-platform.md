@@ -1,5 +1,10 @@
 # Deploying to DigitalOcean App Platform
 
+> **Archived alternative (Milestone 9).** The active cloud target is now Railway:
+> [railway.md](railway.md). This guide and [`deploy/digitalocean/`](../../deploy/digitalocean/)
+> are kept for reference. They describe the Milestone 8 design: a public API with a service
+> token, and an ephemeral TalaDB. Neither has been updated for Milestone 9.
+
 This guide covers three independent App Platform apps built from this repository:
 
 | App              | What it runs                                  | Dockerfile              | Build context         | HTTP port | Health check                                           |

@@ -29,17 +29,18 @@ ticket, and no money ever moves.
 
 ## Milestone status
 
-| Milestone | Scope                                                           | Status  |
-| --------- | --------------------------------------------------------------- | ------- |
-| 1         | Monorepo foundation, premium storefront, search, destinations   | ✅ Done |
-| 2         | Flight inventory, dynamic search, indicative pricing            | ✅ Done |
-| 2.5       | Velasia Airways rebrand: identity, design system, API, docs     | ✅ Done |
-| 3         | Dynamic offers, fare families, shopping sessions                | ✅ Done |
-| 4         | Traveller details, seat maps, ancillaries, booking review       | ✅ Done |
-| 5         | Checkout, durable orders (TalaDB), simulated payments           | ✅ Done |
-| 6         | Manage Booking, order servicing, demo accounts, My Trips        | ✅ Done |
-| 7         | Production hardening, Docker, observability, Node.js baseline   | ✅ Done |
-| 8         | Dual runtime Docker images (Node.js, NextRS), App Platform prep | ✅ Done |
+| Milestone | Scope                                                            | Status                    |
+| --------- | ---------------------------------------------------------------- | ------------------------- |
+| 1         | Monorepo foundation, premium storefront, search, destinations    | ✅ Done                   |
+| 2         | Flight inventory, dynamic search, indicative pricing             | ✅ Done                   |
+| 2.5       | Velasia Airways rebrand: identity, design system, API, docs      | ✅ Done                   |
+| 3         | Dynamic offers, fare families, shopping sessions                 | ✅ Done                   |
+| 4         | Traveller details, seat maps, ancillaries, booking review        | ✅ Done                   |
+| 5         | Checkout, durable orders (TalaDB), simulated payments            | ✅ Done                   |
+| 6         | Manage Booking, order servicing, demo accounts, My Trips         | ✅ Done                   |
+| 7         | Production hardening, Docker, observability, Node.js baseline    | ✅ Done                   |
+| 8         | Dual runtime Docker images (Node.js, NextRS), App Platform prep  | ✅ Done                   |
+| 9         | Railway deployment preparation (IaC, private API, TalaDB volume) | 🟡 Prepared, not deployed |
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) and the milestone reports:
 [M1](docs/MILESTONE-1-REPORT.md), [M2](docs/MILESTONE-2-REPORT.md),
@@ -292,8 +293,20 @@ docker compose -f compose.dual-runtime.yaml up --build -d --wait   # :8081 Node.
 pnpm test:parity                                                   # the same checks against both
 ```
 
-Prepared for DigitalOcean App Platform as three apps (not deployed):
-[docs/deployment/](docs/deployment/digitalocean-app-platform.md), with the
+**Cloud target: Railway (Milestone 9, prepared, not deployed).** One project with three
+services: the two storefronts on generated HTTPS domains, and the API on the private network only,
+with TalaDB on a Railway volume. They are described in [`.railway/railway.ts`](.railway/railway.ts)
+and checked offline with `pnpm railway:check`.
+
+- Guide: [docs/deployment/railway.md](docs/deployment/railway.md).
+- Also: [architecture](docs/deployment/railway-architecture.md),
+  [variables](docs/deployment/railway-environment-variables.md),
+  [validation](docs/deployment/railway-validation-report.md),
+  [benchmark readiness](docs/deployment/railway-benchmark-readiness.md).
+- Railway-like local run: add `-f compose.railway-local.yaml` to the command above.
+
+The Milestone 8 [DigitalOcean App Platform guide](docs/deployment/digitalocean-app-platform.md)
+is kept as an archived alternative, with the
 [API architecture](docs/deployment/api-architecture.md),
 [Docker validation](docs/deployment/docker-validation-report.md) and
 [runtime parity](docs/deployment/runtime-parity-report.md) reports.
