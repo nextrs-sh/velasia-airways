@@ -1,0 +1,60 @@
+# Velasia Airways: Railway-like overrides for compose.dual-runtime.yaml (Milestone 9). Local
+# validation only; nothing here talks to Railway.
+#
+#   RETAILING_API_SERVICE_TOKEN=$(openssl rand -hex 32) METRICS_TOKEN=$(openssl rand -hex 24) \
+#     docker compose -f compose.dual-runtime.yaml -f compose.railway-local.yaml up --build -d --wait
+#   PARITY_ACCOUNTS=enabled PARITY_METRICS_TOKEN=$METRICS_TOKEN pnpm test:parity
+#   docker compose -f compose.dual-runtime.yaml -f compose.railway-local.yaml down --volumes
+#
+# What it reproduces from .railway/railway.ts and Railway's documented behaviour:
+#   - a dual-stack private network: the API name has an A and an AAAA record, as in Railway
+#     environments created after 2025-10-16; the IPv6 range lies inside Railway's fd12::/16, and
+#     172.30.48.0/24 stands in for the environment's private IPv4 range;
+#   - the API reached as velasia-api.railway.internal, listening on :: (IPv6 and IPv4);
+#   - a fresh volume is empty and root-owned, and the API container starts as root
+#     (RAILWAY_RUN_UID=0) with Docker's default capabilities; the entrypoint gives /data to
+#     uid 1000 and drops privileges before the API starts;
+#   - TALADB_REQUIRE_VOLUME=enabled, the shared service token and metrics token (set them in the
+#     environment as above; both storefronts and the API get the same values);
+#   - NextRS allow-lists both address families of the private network, nothing else.
+# Not reproduced: Railway's edge (TLS, X-Forwarded-*, compression), its health checker and the
+# build environment (images are built locally with the same Dockerfiles).
+#
+# Its own Compose project (and volume), separate from compose.dual-runtime.yaml's velasia-dual.
+name: velasia-railway-local
+
+services:
+  velasia-api:
+    user: '0'
+    cap_drop: !reset []
+    environment:
+      RETAILING_API_HOST: '::'
+      PORT: '4010'
+      TALADB_REQUIRE_VOLUME: enabled
+      ACCOUNT_REGISTRATION: ${ACCOUNT_REGISTRATION:-enabled}
+    # A new Railway volume: empty and owned by root (nocopy: the image's /data is not copied in).
+    volumes: !override
+      - type: volume
+        source: velasia-api-data
+        target: /data
+        volume: { nocopy: true }
+    networks:
+      backend:
+        aliases: [velasia-api.railway.internal]
+
+  velasia-node:
+    environment:
+      RETAILING_API_URL: http://velasia-api.railway.internal:4010
+
+  velasia-nextrs:
+    environment:
+      RETAILING_API_URL: http://velasia-api.railway.internal:4010
+      NEXTRS_NET_ALLOW_ADDR: ${RAILWAY_LOCAL_NET_ALLOW_ADDR:-fd12:7e57:a11::/64,172.30.48.0/24}
+
+networks:
+  backend:
+    enable_ipv6: true
+    ipam:
+      config: !override
+        - subnet: 172.30.48.0/24
+        - subnet: fd12:7e57:a11::/64

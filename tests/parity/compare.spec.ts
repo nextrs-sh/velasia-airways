@@ -168,6 +168,73 @@ test.describe('route handlers: same JSON from the shared API', () => {
     expect(r.nextrs.status()).toBe(r.node.status());
     expect(await r.nextrs.json()).toEqual(await r.node.json());
   });
+
+  /*
+   * Milestone 9: the remaining route handlers, so all 14 are exercised on both runtimes. Offers
+   * are created per request (random `off_` ids, fresh expiry times), so those answers are
+   * compared with ids and timestamps replaced; prices and fare families come from the seeded
+   * inventory and must match.
+   */
+  const stable = (value: unknown) =>
+    JSON.parse(
+      JSON.stringify(value)
+        .replace(/off_[A-Za-z0-9_-]{22}/g, 'off_<id>')
+        .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})/g, '<time>'),
+    );
+
+  test('seat map JSON for the same flight (no shopping session)', async () => {
+    const search = JSON.stringify(await (await node.get(API_FLIGHTS)).json());
+    const flightId = search.match(/NV\d{1,4}-\d{8}/)![0];
+    const r = await both(`/api/flights/${flightId}/seatmap`);
+    expect(r.node.status()).toBe(200);
+    expect(r.nextrs.status()).toBe(r.node.status());
+    expect(contract(r.nextrs.headers())).toEqual(contract(r.node.headers()));
+    expect(stable(await r.nextrs.json())).toEqual(stable(await r.node.json()));
+  });
+
+  test('offers for an itinerary, then one offer by id', async () => {
+    const search = JSON.stringify(await (await node.get(API_FLIGHTS)).json());
+    const itineraryId = search.match(/"id":"(NV\d{1,4}-\d{8}(?:_NV\d{1,4}-\d{8})?)"/)![1]!;
+    const offers = await both(`/api/offers?itineraryId=${itineraryId}&adults=1&cabin=economy`);
+    expect(offers.node.status()).toBe(200);
+    expect(offers.nextrs.status()).toBe(offers.node.status());
+    expect(contract(offers.nextrs.headers())).toEqual(contract(offers.node.headers()));
+    const [fromNode, fromNextrs] = [await offers.node.json(), await offers.nextrs.json()];
+    expect(stable(fromNextrs)).toEqual(stable(fromNode));
+
+    // Each runtime reads back an offer it created (same API, so either could read either).
+    const nodeOffer = JSON.stringify(fromNode).match(/off_[A-Za-z0-9_-]{22}/)![0];
+    const nextrsOffer = JSON.stringify(fromNextrs).match(/off_[A-Za-z0-9_-]{22}/)![0];
+    const [a, b] = await Promise.all([
+      node.get(`/api/offers/${nodeOffer}`),
+      nextrs.get(`/api/offers/${nextrsOffer}`),
+    ]);
+    expect(a.status()).toBe(200);
+    expect(b.status()).toBe(a.status());
+    expect(contract(b.headers())).toEqual(contract(a.headers()));
+    expect(stable(await b.json())).toEqual(stable(await a.json()));
+    // An unknown (well-formed) offer and a malformed one: the same errors.
+    for (const path of [`/api/offers/off_${'A'.repeat(22)}`, '/api/offers/not-an-offer']) {
+      const r = await both(path);
+      expect(r.nextrs.status(), path).toBe(r.node.status());
+      expect(await r.nextrs.json(), path).toEqual(await r.node.json());
+    }
+  });
+
+  test('storefront metrics: same status and format', async () => {
+    const r = await both('/api/internal/metrics');
+    expect(r.nextrs.status()).toBe(r.node.status());
+    expect(r.nextrs.headers()['content-type']).toBe(r.node.headers()['content-type']);
+    if (process.env.PARITY_METRICS_TOKEN) {
+      // A token is configured: unauthenticated scrapes are refused, authenticated ones answer.
+      expect(r.node.status()).toBe(401);
+      const auth = { authorization: `Bearer ${process.env.PARITY_METRICS_TOKEN}` };
+      const ok = await both('/api/internal/metrics', auth);
+      expect(ok.node.status()).toBe(200);
+      expect(ok.nextrs.status()).toBe(200);
+      expect(await ok.nextrs.text()).toMatch(/^# (HELP|TYPE) /m);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -231,6 +298,56 @@ test.describe('response compression (known NextRS 0.1.0-rc.1 difference)', () =>
       });
       expect(r.node.headers()['content-encoding'], `node ${path}`).toBe('gzip');
       expect(r.nextrs.headers()['content-encoding'], `nextrs ${path}`).toBeTruthy();
+    }
+  });
+});
+
+test.describe('static byte ranges (known NextRS 0.1.0-rc.1 difference)', () => {
+  /*
+   * Milestone 9. The official server answers `Range` requests for build assets and public files
+   * with 206 Partial Content. NextRS 0.1.0-rc.1 ignores `Range` (200, whole body); 0.1.0-rc.2
+   * adds static ranges. Expected failure until Velasia pins rc.2 (docker/nextrs/package.json),
+   * like the compression check above; then both markers are removed together.
+   */
+  test('a byte range of a build chunk and of a public image', async () => {
+    test.fail(true, 'NextRS 0.1.0-rc.1 does not serve byte ranges');
+    const html = await (await node.get('/')).text();
+    const chunk = html.match(/\/_next\/static\/chunks\/[^"?]+\.js/)![0];
+    for (const path of [chunk, '/images/brand/hero.jpg']) {
+      const whole = await (
+        await node.get(path, { headers: { 'accept-encoding': 'identity' } })
+      ).body();
+      const r = await both(path, { range: 'bytes=0-99', 'accept-encoding': 'identity' });
+      for (const [name, res] of [
+        ['node', r.node],
+        ['nextrs', r.nextrs],
+      ] as const) {
+        expect(res.status(), `${name} ${path}`).toBe(206);
+        expect(res.headers()['content-range'], `${name} ${path}`).toBe(
+          `bytes 0-99/${whole.length}`,
+        );
+        expect(Buffer.compare(await res.body(), whole.subarray(0, 100)), `${name} ${path}`).toBe(0);
+      }
+    }
+  });
+});
+
+test.describe('deployment ID (VELASIA_DEPLOYMENT_ID)', () => {
+  /*
+   * Milestone 9. Runs only when both storefronts were built with a deployment ID
+   * (PARITY_DEPLOYMENT_ID = the VELASIA_DEPLOYMENT_ID build argument). NextRS 0.1.0-rc.1 cannot
+   * serve such builds (Dockerfile.nextrs refuses them), so this is checked once rc.2 is pinned.
+   */
+  const id = process.env.PARITY_DEPLOYMENT_ID;
+  test('both runtimes serve assets tagged with the same deployment ID', async () => {
+    test.skip(!id, 'PARITY_DEPLOYMENT_ID is not set (the build has no deployment ID)');
+    const r = await both('/');
+    for (const [name, res] of [
+      ['node', r.node],
+      ['nextrs', r.nextrs],
+    ] as const) {
+      expect(res.status(), name).toBe(200);
+      expect(await res.text(), name).toContain(`dpl=${id}`);
     }
   });
 });
