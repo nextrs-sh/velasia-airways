@@ -2,3 +2,7 @@
 # "same-key-0123456789" and "click-key-0123456789" (apps/web/test/checkout.test.ts).
 d6cea92c080a7de965715e452d01550b84b3f0d6:apps/web/test/checkout.test.ts:generic-api-key:180
 d6cea92c080a7de965715e452d01550b84b3f0d6:apps/web/test/checkout.test.ts:generic-api-key:274
+# Reviewed false positive (Milestone 8, found in Milestone 9): prose in a report table, "the
+# service token on, `VELASIA_TODAY=2026-12-01`" (docs/deployment/runtime-parity-report.md). No
+# token value is in the repository; the real ones live only in deployment secrets.
+cd1df5a8e4cb243aea5707f020bcf1ef8d5649f6:docs/deployment/runtime-parity-report.md:generic-api-key:16
