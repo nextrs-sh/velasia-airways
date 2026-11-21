@@ -46,6 +46,8 @@ catalog:
   globals: 17.14.0
   prettier: 3.10.1
   prettier-plugin-tailwindcss: 0.8.1
+  # Railway Infrastructure as Code SDK (types for .railway/railway.ts; Milestone 9)
+  railway: 3.17.0
   # Testing
   vitest: 5.1.0
   vite: 8.3.8
