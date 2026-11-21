@@ -29,6 +29,11 @@
 #   VELASIA_TODAY          pin "today" (YYYY-MM-DD) for deterministic demos/benchmarks; optional
 #   VELASIA_NEXT_COMPRESS  `disabled` turns off the Next.js server's gzip (benchmarks); optional
 #
+# Railway (Milestone 9, docs/deployment/railway.md): built from the repository root
+# (RAILWAY_DOCKERFILE_PATH). Railway passes a service variable to a build only through an ARG of
+# the same name, so the public arguments above are all a build receives; no secret has an ARG.
+# The build prerenders from its own throwaway API (127.0.0.1), never the private network.
+#
 # Portable Dockerfile syntax only (no BuildKit `RUN --mount`, `COPY --chmod` or heredocs): App
 # Platform's Dockerfile builder is not documented to support them. Hence no pnpm store cache
 # mount and no Server Actions key secret mount (one build serves every instance of an app, so
@@ -61,12 +66,25 @@ ARG SITE_URL=http://localhost:8080
 ARG VELASIA_DEPLOYMENT_ID=
 ARG VELASIA_TODAY=
 ARG VELASIA_NEXT_COMPRESS=
+# Milestone 9: the build always prerenders from its own throwaway API on 127.0.0.1
+# (apps/web/scripts/with-retailing-api.mjs, temporary TalaDB file), never from a deployed one:
+# private networking (velasia-api.railway.internal) does not exist while an image builds, and the
+# runtime service token is not a build input (empty here, so the throwaway API needs none).
 ENV SITE_URL=${SITE_URL} \
     VELASIA_DEPLOYMENT_ID=${VELASIA_DEPLOYMENT_ID} \
     VELASIA_TODAY=${VELASIA_TODAY} \
     VELASIA_NEXT_COMPRESS=${VELASIA_NEXT_COMPRESS} \
+    RETAILING_API_URL=http://127.0.0.1:4010 \
+    RETAILING_API_SERVICE_TOKEN= \
     RETAILING_API_START_TIMEOUT_MS=180000
-RUN pnpm --filter @velasia/web build
+# An unresolved Railway reference (no generated domain yet) leaves an empty host or a literal
+# `${{`: fail here rather than bake a broken origin into every page.
+RUN case "$SITE_URL" in *'${{'* | *' '*) bad=1 ;; http://?* | https://?*) bad= ;; *) bad=1 ;; esac \
+ && if [ -n "$bad" ]; then \
+      echo "SITE_URL must be an absolute http(s) origin with a host, got '$SITE_URL'" \
+           "(on Railway: generate the service domain before the first build)" >&2; exit 1; fi \
+ && echo "SITE_URL baked into this build: $SITE_URL" \
+ && pnpm --filter @velasia/web build
 # The standalone server is complete (public/ and .next/static/ beside it), and the build-time
 # API wrote only to a temporary directory: no database or .env file leaked in.
 RUN test -f apps/web/.next/standalone/apps/web/server.js \

@@ -124,6 +124,11 @@ const ALLOWED: { file: string; pattern: RegExp; why: string }[] = [
     pattern: /'aeronova'/,
     why: 'stable seed',
   },
+  {
+    file: '.railway/railway.ts',
+    pattern: /^const INVENTORY_SEED = 'aeronova';$/,
+    why: 'stable seed (Milestone 9 Railway configuration)',
+  },
   { file: 'apps/web/test/brand.test.ts', pattern: /./, why: 'this guard' },
 ];
 
