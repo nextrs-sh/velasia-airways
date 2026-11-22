@@ -13,8 +13,11 @@
 #   NEXTRS_ISOLATES           V8 isolates (default 1: one JavaScript thread, like one Node.js
 #                             process; see docs/deployment/runtime-parity-report.md)
 #   NEXTRS_NET_ALLOW_ADDR     private address/CIDR the API resolves to (repeatable, space or
-#                             comma separated): needed only when the API is on a private network
-#                             (Docker Compose); a public HTTPS API URL needs none
+#                             comma separated): needed when the API is on a private network
+#                             (Docker Compose, Railway private networking); a public HTTPS API
+#                             URL needs none. NextRS refuses a lookup if ANY address in the answer
+#                             is outside these ranges, so a dual-stack hostname (A and AAAA
+#                             records) needs both its IPv4 and its IPv6 range listed.
 #   NEXTRS_TRUSTED_PROXY      reverse-proxy address/CIDR whose X-Forwarded-* headers are kept
 #   NEXTRS_STRIP_FORWARDED_HEADERS=true   drop X-Forwarded-* from every request (no proxy)
 #                             (neither set: forwarded headers pass through, as with next start)
@@ -42,6 +45,62 @@ api="${RETAILING_API_URL:-}"
 api_origin=$(printf '%s\n' "$api" | sed -n -E 's#^(https?://[^/?]+).*$#\1#p')
 [ -n "$api_origin" ] || fail "RETAILING_API_URL must be an http:// or https:// URL."
 
+# Milestone 9: log what the API hostname resolves to right now (addresses are not secret), and
+# warn about every address outside NEXTRS_NET_ALLOW_ADDR. NextRS refuses a lookup if any address
+# in the answer is non-public and outside the ranges, and it does not log why (the app sees a
+# failed fetch). Informational only: NextRS enforces the policy on every connection, and the
+# readiness route (/api/internal/health/ready, Railway's deploy health check) fails meanwhile.
+api_host=$(printf '%s\n' "$api_origin" | sed -E 's#^https?://##; s#:[0-9]+$##; s#^\[(.*)\]$#\1#')
+allow_addr=$(printf '%s' "${NEXTRS_NET_ALLOW_ADDR:-}" | tr ',' ' ')
+if command -v getent >/dev/null 2>&1; then
+  api_addrs=$(getent ahosts "$api_host" 2>/dev/null | awk '{ print $1 }' | sort -u | tr '\n' ' ' | sed 's/ $//')
+  printf '{"level":"info","service":"velasia-nextrs","msg":"retailing API host","host":"%s","addresses":"%s","allowAddr":"%s"}\n' \
+    "$api_host" "${api_addrs:-unresolved}" "${NEXTRS_NET_ALLOW_ADDR:-}" >&2
+  if [ -n "$allow_addr" ] && [ -n "$api_addrs" ]; then
+    # Addresses no listed range contains (IPv4 and IPv6 CIDRs or single addresses; POSIX awk).
+    outside=$(printf '%s\n' $api_addrs | awk -v RANGES="$allow_addr" '
+      function bits(n, w,   s, k) { s = ""; for (k = 0; k < w; k++) { s = (n % 2) s; n = int(n / 2) } return s }
+      function h4(g) { while (length(g) < 4) g = "0" g; return tolower(g) }
+      function v6hex(a,   n, parts, hp, tp, nh, nt, i, s, miss) {
+        n = split(a, parts, "::")
+        if (n == 1) { nh = split(a, hp, ":"); nt = 0 }
+        else {
+          nh = (parts[1] == "") ? 0 : split(parts[1], hp, ":")
+          nt = (parts[2] == "") ? 0 : split(parts[2], tp, ":")
+        }
+        s = ""; for (i = 1; i <= nh; i++) s = s h4(hp[i])
+        miss = 8 - nh - nt; for (i = 1; i <= miss; i++) s = s "0000"
+        for (i = 1; i <= nt; i++) s = s h4(tp[i])
+        return s
+      }
+      function addrbits(a,   p, s, i) {
+        if (a ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) {
+          split(a, p, "."); return "4" bits(p[1], 8) bits(p[2], 8) bits(p[3], 8) bits(p[4], 8)
+        }
+        if (a ~ /:/ && a !~ /\./) {
+          a = v6hex(a); s = "6"
+          for (i = 1; i <= 32; i++) s = s bits(index("0123456789abcdef", substr(a, i, 1)) - 1, 4)
+          return s
+        }
+        return ""
+      }
+      BEGIN { nr = split(RANGES, r, " ") }
+      {
+        a = addrbits($1); if (a == "") next; hit = 0
+        for (i = 1; i <= nr; i++) {
+          split(r[i], c, "/"); net = addrbits(c[1])
+          if (net == "" || substr(net, 1, 1) != substr(a, 1, 1)) continue
+          plen = (c[2] == "") ? length(net) - 1 : c[2] + 0
+          if (substr(a, 2, plen) == substr(net, 2, plen)) { hit = 1; break }
+        }
+        if (!hit) print $1
+      }' | tr '\n' ' ' | sed 's/ $//')
+    [ -z "$outside" ] ||
+      printf '{"level":"warn","service":"velasia-nextrs","msg":"retailing API addresses outside NEXTRS_NET_ALLOW_ADDR: NextRS refuses the API unless they are public","outside":"%s","allowAddr":"%s"}\n' \
+        "$outside" "${NEXTRS_NET_ALLOW_ADDR:-}" >&2
+  fi
+fi
+
 set -- start /app/apps/web \
   --host 0.0.0.0 \
   --port "$port" \
@@ -59,7 +118,7 @@ for name in RETAILING_API_URL RETAILING_API_SERVICE_TOKEN SITE_URL RETAILING_API
   [ -z "$isset" ] || set -- "$@" --js-env "$name"
 done
 
-for addr in $(printf '%s' "${NEXTRS_NET_ALLOW_ADDR:-}" | tr ',' ' '); do
+for addr in $allow_addr; do
   set -- "$@" --net-allow-addr "$addr"
 done
 for proxy in $(printf '%s' "${NEXTRS_TRUSTED_PROXY:-}" | tr ',' ' '); do

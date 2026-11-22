@@ -175,3 +175,10 @@ backups/
 *.db.pre-restore-*
 *.db.restore-partial
 benchmarks/**/results/raw-local/
+
+# Milestone 9: Railway. Only the IaC authoring files are committed; anything else the Railway CLI
+# writes into .railway/ (e.g. `railway link` state) stays local.
+.railway/*
+!.railway/railway.ts
+!.railway/package.json
+!.railway/tsconfig.json

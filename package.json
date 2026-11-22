@@ -28,7 +28,8 @@
     "test:docker": "playwright test -c playwright.docker.config.ts",
     "dual:up": "docker compose -f compose.dual-runtime.yaml up --build -d --wait",
     "dual:down": "docker compose -f compose.dual-runtime.yaml down --volumes",
-    "test:parity": "playwright test -c playwright.parity.config.ts"
+    "test:parity": "playwright test -c playwright.parity.config.ts",
+    "railway:check": "tsc -p .railway && node scripts/railway/check-iac.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "catalog:",
@@ -36,6 +37,7 @@
     "@types/node": "catalog:",
     "prettier": "catalog:",
     "prettier-plugin-tailwindcss": "catalog:",
+    "railway": "catalog:",
     "turbo": "catalog:",
     "typescript": "catalog:"
   }

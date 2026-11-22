@@ -10,6 +10,8 @@
 **/.DS_Store
 .git
 .github
+# Railway IaC authoring files (read by the Railway CLI, never by an image)
+.railway
 docs
 benchmarks/**/results
 backups
