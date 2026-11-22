@@ -8,14 +8,9 @@ report must come from a measured run, recorded as described below.
 
 1. **Functional validation passed on Railway.** That is step 8 of [railway.md](railway.md), with
    the parity suite green against both domains.
-2. **NextRS is the official rc.2.** With rc.1:
-   - NextRS does not gzip while Node.js does, so they do unequal work per response;
-   - NextRS has no byte ranges;
-   - the deployment-ID policy is forced to "off".
-
-   An rc.1 cloud run can only be an explicitly labelled baseline, with
-   `VELASIA_NEXT_COMPRESS=disabled` on both storefronts so that neither compresses. Even then, the
-   Railway edge may compress (next point).
+2. **NextRS is the official rc.2** (pinned in `docker/nextrs/`). rc.1 did not gzip, had no byte
+   ranges and refused deployment IDs, so an rc.1 run is not comparable; never mix rc.1 numbers
+   into an rc.2 report. The Railway edge may still compress (next point).
 
 3. **The edge's behaviour is measured, not assumed.** Railway documents edge compression on its
    CDN page; its scope with the CDN off is unclear. Before benchmarking:

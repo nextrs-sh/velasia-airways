@@ -23,9 +23,9 @@
 # Build arguments (all public; never pass secrets as build arguments):
 #   SITE_URL               canonical origin baked into sitemap/robots/metadata (and, at runtime,
 #                          https:// => Secure cookies; set the same value as a runtime variable)
-#   VELASIA_DEPLOYMENT_ID  version-skew protection id (e.g. the git commit); optional. Leave it
-#                          unset when comparing with velasia-nextrs: NextRS 0.1.0-rc.1 refuses
-#                          builds that use it, and both images must come from the same build.
+#   VELASIA_DEPLOYMENT_ID  version-skew protection id (e.g. the git commit); optional. When
+#                          comparing with velasia-nextrs, give both images the same value: they
+#                          must come from the same build.
 #   VELASIA_TODAY          pin "today" (YYYY-MM-DD) for deterministic demos/benchmarks; optional
 #   VELASIA_NEXT_COMPRESS  `disabled` turns off the Next.js server's gzip (benchmarks); optional
 #

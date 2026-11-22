@@ -279,15 +279,13 @@ test.describe('rendered in the browser', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-test.describe('response compression (known NextRS 0.1.0-rc.1 difference)', () => {
+test.describe('response compression', () => {
   /*
    * The official Next.js server compresses (gzip; `compress` defaults to true) HTML, RSC, JSON
-   * and static JavaScript/CSS, with `Vary: Accept-Encoding`. NextRS 0.1.0-rc.1 sends every
-   * response uncompressed. Marked as an expected failure so the gap is reported on every run;
-   * if NextRS starts compressing, this test "unexpectedly passes" and must be updated.
+   * and static JavaScript/CSS, with `Vary: Accept-Encoding`. NextRS compresses since 0.1.0-rc.2
+   * (gzip only; rc.1 sent every response uncompressed).
    */
   test('both runtimes compress HTML, JSON and static assets for gzip clients', async () => {
-    test.fail(true, 'NextRS 0.1.0-rc.1 does not compress responses');
     const html = await (await node.get('/')).text();
     const chunk = html.match(/\/_next\/static\/chunks\/[^"]+\.js/)![0];
     for (const path of ['/', '/api/airports', chunk]) {
@@ -302,15 +300,12 @@ test.describe('response compression (known NextRS 0.1.0-rc.1 difference)', () =>
   });
 });
 
-test.describe('static byte ranges (known NextRS 0.1.0-rc.1 difference)', () => {
+test.describe('static byte ranges', () => {
   /*
    * Milestone 9. The official server answers `Range` requests for build assets and public files
-   * with 206 Partial Content. NextRS 0.1.0-rc.1 ignores `Range` (200, whole body); 0.1.0-rc.2
-   * adds static ranges. Expected failure until Velasia pins rc.2 (docker/nextrs/package.json),
-   * like the compression check above; then both markers are removed together.
+   * with 206 Partial Content. NextRS serves static ranges since 0.1.0-rc.2 (rc.1 ignored `Range`).
    */
   test('a byte range of a build chunk and of a public image', async () => {
-    test.fail(true, 'NextRS 0.1.0-rc.1 does not serve byte ranges');
     const html = await (await node.get('/')).text();
     const chunk = html.match(/\/_next\/static\/chunks\/[^"?]+\.js/)![0];
     for (const path of [chunk, '/images/brand/hero.jpg']) {
@@ -335,8 +330,8 @@ test.describe('static byte ranges (known NextRS 0.1.0-rc.1 difference)', () => {
 test.describe('deployment ID (VELASIA_DEPLOYMENT_ID)', () => {
   /*
    * Milestone 9. Runs only when both storefronts were built with a deployment ID
-   * (PARITY_DEPLOYMENT_ID = the VELASIA_DEPLOYMENT_ID build argument). NextRS 0.1.0-rc.1 cannot
-   * serve such builds (Dockerfile.nextrs refuses them), so this is checked once rc.2 is pinned.
+   * (PARITY_DEPLOYMENT_ID = the VELASIA_DEPLOYMENT_ID build argument). NextRS serves such builds
+   * since 0.1.0-rc.2.
    */
   const id = process.env.PARITY_DEPLOYMENT_ID;
   test('both runtimes serve assets tagged with the same deployment ID', async () => {

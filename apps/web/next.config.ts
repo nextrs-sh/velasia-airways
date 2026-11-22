@@ -55,8 +55,8 @@ const nextConfig: NextConfig = {
   typedRoutes: true,
   poweredByHeader: false,
   // Milestone 8: gzip in the Next.js server (Next's default, on). `VELASIA_NEXT_COMPRESS=disabled`
-  // at build time turns it off: for equal-work benchmarks against NextRS 0.1.0-rc.1 (which does
-  // not compress), or behind a CDN that compresses. See docs/deployment/runtime-parity-report.md.
+  // at build time turns it off, for both runtimes (NextRS 0.1.0-rc.2 reads the same switch), e.g.
+  // behind a CDN that compresses. See docs/deployment/runtime-parity-report.md.
   compress: process.env.VELASIA_NEXT_COMPRESS !== 'disabled',
   reactStrictMode: true,
   // Milestone 7: a self-contained server (`.next/standalone`) for the production image. It is

@@ -285,7 +285,7 @@ The storefront ships as two production images built from the same source and the
 | Image            | Server                                                                                                                        | Dockerfile              |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
 | `velasia-node`   | the official Next.js production server (standalone `server.js`, Node.js 24)                                                   | `Dockerfile.node`       |
-| `velasia-nextrs` | [NextRS](https://github.com/nextrs-sh/nextrs) `@nextrs/cli@0.1.0-rc.1` from npm (Rust + embedded V8, no Node.js in the image) | `Dockerfile.nextrs`     |
+| `velasia-nextrs` | [NextRS](https://github.com/nextrs-sh/nextrs) `@nextrs/cli@0.1.0-rc.2` from npm (Rust + embedded V8, no Node.js in the image) | `Dockerfile.nextrs`     |
 | `velasia-api`    | the retailing API (unchanged role)                                                                                            | `docker/Dockerfile.api` |
 
 ```bash

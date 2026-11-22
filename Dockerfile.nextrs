@@ -1,6 +1,6 @@
 #
 # Velasia Airways storefront on NextRS (Rust server + embedded V8), from the npm distribution
-# @nextrs/cli@0.1.0-rc.1. Milestone 8.
+# @nextrs/cli@0.1.0-rc.2. Milestone 8.
 #
 #   docker build -f Dockerfile.nextrs -t velasia-nextrs .
 #   docker run --rm -p 8080:8080 -e RETAILING_API_URL=https://<api-host> \
@@ -15,7 +15,7 @@
 #
 # Stages:
 #   build           Next.js build (Node.js is used here only, to build).
-#   nextrs-install  `npm ci` of docker/nextrs/package-lock.json (@nextrs/cli@0.1.0-rc.1 from
+#   nextrs-install  `npm ci` of docker/nextrs/package-lock.json (@nextrs/cli@0.1.0-rc.2 from
 #                   registry.npmjs.org, integrity-pinned); checks the version and the native
 #                   binary's sha256 against the package's BUILD-INFO.json. No compilation, no
 #                   Rust toolchain anywhere.
@@ -28,8 +28,10 @@
 # Portable Dockerfile syntax only (no BuildKit `RUN --mount`, `COPY --chmod` or heredocs), as in
 # Dockerfile.node: App Platform's Dockerfile builder is not documented to support them.
 #
-# Build arguments: as Dockerfile.node (SITE_URL, VELASIA_TODAY), except VELASIA_DEPLOYMENT_ID,
-# which NextRS 0.1.0-rc.1 cannot serve (the nextrs-inspect stage fails the build if it is set).
+# Build arguments: as Dockerfile.node (SITE_URL, VELASIA_DEPLOYMENT_ID, VELASIA_TODAY,
+# VELASIA_NEXT_COMPRESS). NextRS 0.1.0-rc.2 serves deployment-ID builds as `next start` does and
+# compresses as `next start` does (`compress` in next.config); give both storefronts the same
+# VELASIA_DEPLOYMENT_ID when they are compared.
 #
 # Railway (Milestone 9, docs/deployment/railway.md): built from the repository root
 # (RAILWAY_DOCKERFILE_PATH). Railway passes a service variable to a build only through an ARG of
@@ -107,10 +109,10 @@ RUN npm ci --no-audit --no-fund --ignore-scripts --registry=https://registry.npm
 # bin/nextrs is a shell launcher; native/nextrs is the binary that BUILD-INFO.json describes.
 RUN set -eu; pkg=node_modules/@nextrs/cli; \
     v=$(node -p "require('./$pkg/package.json').version"); \
-    [ "$v" = "0.1.0-rc.1" ] || { echo "expected @nextrs/cli 0.1.0-rc.1, got $v" >&2; exit 1; }; \
+    [ "$v" = "0.1.0-rc.2" ] || { echo "expected @nextrs/cli 0.1.0-rc.2, got $v" >&2; exit 1; }; \
     echo "$(node -p "require('./$pkg/BUILD-INFO.json').binary_sha256")  $pkg/native/nextrs" | sha256sum -c -; \
     out=$("$pkg/native/nextrs" --version); echo "$out"; \
-    [ "$out" = "nextrs 0.1.0-rc.1" ] || { echo "unexpected --version: $out" >&2; exit 1; }; \
+    [ "$out" = "nextrs 0.1.0-rc.2" ] || { echo "unexpected --version: $out" >&2; exit 1; }; \
     mkdir -p /out/doc; \
     install -m 0755 "$pkg/native/nextrs" /out/nextrs; \
     cp "$pkg/package.json" /out/doc/npm-package.json; \
@@ -119,29 +121,23 @@ RUN set -eu; pkg=node_modules/@nextrs/cli; \
 
 # ---------------------------------------------------------------------------------------------
 FROM ${RUNTIME_IMAGE} AS nextrs-inspect
-# `nextrs inspect` must read the build. It also passes builds that `nextrs start` 0.1.0-rc.1
-# then refuses: routes-manifest `onMatchHeaders`, which Next.js emits for `deploymentId`
-# (VELASIA_DEPLOYMENT_ID). That fails here, at build time, instead of at startup.
+# `nextrs inspect` must read the build, on the runtime base (glibc), or the image build fails.
 COPY --from=nextrs-install /out/nextrs /usr/local/bin/nextrs
 COPY --from=build /repo/apps/web/.next/standalone /app
 RUN set -eu; mkdir -p /out; \
     /usr/local/bin/nextrs inspect /app/apps/web > /out/inspect.txt 2>&1 \
       || { cat /out/inspect.txt; echo "nextrs inspect failed" >&2; exit 1; }; \
-    cat /out/inspect.txt; \
-    if tr -d '[:space:]' < /app/apps/web/.next/routes-manifest.json | grep -q '"onMatchHeaders":\[{'; then \
-      echo "VELASIA_DEPLOYMENT_ID (Next.js deploymentId) is not supported by NextRS 0.1.0-rc.1:" \
-           "build without it (see docs/deployment/runtime-parity-report.md)" >&2; exit 1; \
-    fi
+    cat /out/inspect.txt
 
 # ---------------------------------------------------------------------------------------------
 FROM ${RUNTIME_IMAGE} AS runtime
 LABEL org.opencontainers.image.title="velasia-nextrs" \
-      org.opencontainers.image.description="Velasia Airways storefront on NextRS @nextrs/cli@0.1.0-rc.1 (fictional demo; no real reservations or payments)" \
+      org.opencontainers.image.description="Velasia Airways storefront on NextRS @nextrs/cli@0.1.0-rc.2 (fictional demo; no real reservations or payments)" \
       org.opencontainers.image.source="https://github.com/nextrs-sh/velasia-airways" \
       org.opencontainers.image.licenses="MIT" \
       dev.velasia.runtime="nextrs" \
-      dev.nextrs.npm-package="@nextrs/cli@0.1.0-rc.1" \
-      dev.nextrs.binary-sha256="44f04e586c7dc9eb0b8f69dfd992143f725472aa5f3619df5a4039d77d2c6956"
+      dev.nextrs.npm-package="@nextrs/cli@0.1.0-rc.2" \
+      dev.nextrs.binary-sha256="87d9d871a4abd727bf96597959734ada97d173d1ec0ed979616bb2b6fca86d22"
 # Security updates for the base image's packages. NextRS links only libc, libm, libgcc_s and
 # the loader, and carries its own TLS roots (webpki-roots): no extra packages are needed.
 RUN apt-get update \
