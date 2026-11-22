@@ -1,4 +1,4 @@
-# DigitalOcean App Platform spec: the Velasia storefront on NextRS (@nextrs/cli@0.1.0-rc.1; no Node.js in the image).
+# DigitalOcean App Platform spec: the Velasia storefront on NextRS (@nextrs/cli@0.1.0-rc.2; no Node.js in the image).
 # Milestone 8. See docs/deployment/digitalocean-app-platform.md before using it.
 #
 #   doctl apps create --spec deploy/digitalocean/velasia-nextrs.yaml

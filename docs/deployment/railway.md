@@ -24,10 +24,8 @@ The configuration lives in code:
 > or domain exists, and `railway config plan` / `apply` have never run. Platform facts come from
 > docs.railway.com, read on 2026-11-21.
 >
-> **Open blocker:** `@nextrs/cli@0.1.0-rc.2` is not on npm yet.
->
-> - `Dockerfile.nextrs` still pins rc.1.
-> - Gzip, static byte ranges and `VELASIA_DEPLOYMENT_ID` need rc.2 ([upgrade steps](#nextrs-rc2-upgrade)).
+> **NextRS:** `Dockerfile.nextrs` pins `@nextrs/cli@0.1.0-rc.2`, which brings gzip, static byte
+> ranges and `VELASIA_DEPLOYMENT_ID` support ([upgrade notes](#nextrs-rc2-upgrade)).
 >
 > Velasia Airways is fictional: no reservations, tickets or payments are real.
 
@@ -467,40 +465,27 @@ Least to most destructive:
 
 ## NextRS rc.2 upgrade
 
-`@nextrs/cli@0.1.0-rc.2` was checked on 2026-11-21 and is not published yet:
+The images pin `@nextrs/cli@0.1.0-rc.2` (rc.1 until 2026-11-22). The upgrade, in one change:
 
-- npm `dist-tags` still show `0.1.0-rc.1`;
-- the registry has no `0.1.0-rc.2` version, and its tarball URL returns 404;
-- the GitHub repository has no `v0.1.0-rc.2` tag or release, although the "prepare v0.1.0-rc.2" PR
-  is merged.
-
-Following the milestone brief, neither rc.1 nor a locally built binary was presented as rc.2.
-The images stay on rc.1 until rc.2 is officially published. Then, in one commit:
-
-1. **Verify the release**: `npm view @nextrs/cli@0.1.0-rc.2 version dist.integrity`, the GitHub
-   release and tag, and the package's `BUILD-INFO.json` sha256.
-2. **Update the pin.** In `docker/nextrs/`, set `"@nextrs/cli": "0.1.0-rc.2"` in `package.json`,
-   then run `npm install --package-lock-only --ignore-scripts`. This updates the lockfile with the
-   integrity value.
-3. **Update `Dockerfile.nextrs`**:
-   - the expected version: `0.1.0-rc.2` in the version check, `--version`, and the labels;
-   - the binary sha256 label, from the new `BUILD-INFO.json`;
-   - **delete the rc.1-only `onMatchHeaders` refusal** in the `nextrs-inspect` stage, so that
-     `VELASIA_DEPLOYMENT_ID` builds are allowed.
-4. **Remove the rc.1 restriction comments** in `Dockerfile.node` and `compose.dual-runtime.yaml`.
-5. **Remove the two rc.1 expected-failure markers** in `tests/parity/compare.spec.ts`
-   (compression, byte ranges), and only those. Then run the suite. It must pass without them,
-   with a deployment ID set:
+1. **The pin.** `docker/nextrs/package.json` and its lockfile (`npm install --package-lock-only
+--ignore-scripts` in `docker/nextrs/`, which records the registry's integrity value).
+2. **`Dockerfile.nextrs`**: the expected version in the version check, `--version` and the
+   labels; the binary sha256 label (`87d9d871…`, the rc.2 release binary, which `nextrs-install`
+   checks against the package's `BUILD-INFO.json`); and the rc.1-only `onMatchHeaders` refusal in
+   the `nextrs-inspect` stage is gone, so `VELASIA_DEPLOYMENT_ID` builds are allowed.
+3. **`compose.dual-runtime.yaml`** passes `VELASIA_DEPLOYMENT_ID` to both images (one build).
+4. **`tests/parity/compare.spec.ts`**: the two rc.1 expected-failure markers (compression, byte
+   ranges) are removed. The suite must pass without them, with a deployment ID set:
    ```bash
    VELASIA_DEPLOYMENT_ID=$(git rev-parse --short=12 HEAD) docker compose … up --build
    PARITY_DEPLOYMENT_ID=… pnpm test:parity
    ```
-6. **On Railway**, set `VELASIA_DEPLOYMENT_ID` identically on both storefronts. For example, set
-   it to the commit of `deploy/railway`, as a literal in `railway.ts` updated with each deploy. It
-   is a build argument.
 
-Gzip, the bounded compression cache, static ranges and the deployment ID then need no further
-flags:
+**On Railway**, set `VELASIA_DEPLOYMENT_ID` identically on both storefronts. For example, set it
+to the commit of `deploy/railway`, as a literal in `railway.ts` updated with each deploy. It is a
+build argument.
+
+Gzip, the bounded compression cache, static ranges and the deployment ID need no further flags:
 
 - gzip is on by default (`next.config` `compress`);
 - the compression cache is `--compression-cache`, 32 MiB by default;

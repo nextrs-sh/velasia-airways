@@ -29,10 +29,11 @@ x-hardening: &hardening
     driver: json-file
     options: { max-size: 10m, max-file: '5' }
 
-# VELASIA_DEPLOYMENT_ID is deliberately absent: NextRS 0.1.0-rc.1 cannot serve a build that
-# uses Next.js deploymentId, and both images must come from the same build.
+# Both images must come from the same build, so they share every build argument, including
+# VELASIA_DEPLOYMENT_ID (optional; NextRS 0.1.0-rc.2 serves deployment-ID builds).
 x-storefront-build-args: &storefront-build-args
   SITE_URL: ${SITE_URL:-http://localhost:8080}
+  VELASIA_DEPLOYMENT_ID: ${VELASIA_DEPLOYMENT_ID:-}
   VELASIA_TODAY: ${VELASIA_TODAY:-}
   VELASIA_NEXT_COMPRESS: ${VELASIA_NEXT_COMPRESS:-}
 

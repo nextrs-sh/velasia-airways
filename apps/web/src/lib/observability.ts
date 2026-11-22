@@ -85,9 +85,11 @@ export function webMetrics(): WebMetrics {
   return metrics;
 }
 
-const ID_SEGMENT = /^(ord|ses|off|opr|trv|acc|rfd|pat|hld|svc)_|\d/;
+// Booking references (`VEL-` + 6 characters) need their own rule: about one in six has no digit
+// (`VEL-XJSGVC`), and the digit rule alone then leaked the reference into the label.
+const ID_SEGMENT = /^(ord|ses|off|opr|trv|acc|rfd|pat|hld|svc)_|^VEL-|\d/;
 
-/** A bounded label for an API path: ids, dates, and flight numbers become `:id`. */
+/** A bounded label for an API path: ids, booking references, dates, and flight numbers become `:id`. */
 export function operationOf(path: string): string {
   const pathname = path.split('?')[0] ?? path;
   return pathname

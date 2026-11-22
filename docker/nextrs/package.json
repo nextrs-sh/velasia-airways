@@ -4,6 +4,6 @@
   "description": "Pins the NextRS npm distribution used by Dockerfile.nextrs (installed with npm ci; only its native binary reaches the runtime image).",
   "license": "MIT",
   "dependencies": {
-    "@nextrs/cli": "0.1.0-rc.1"
+    "@nextrs/cli": "0.1.0-rc.2"
   }
 }

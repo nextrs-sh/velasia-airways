@@ -33,6 +33,8 @@ describe('metric labels', () => {
     );
     expect(operationOf('/v1/flights?from=MNL&to=SIN')).toBe('/v1/flights');
     expect(operationOf('/v1/orders/reference/VEL-8K4P2Q')).toBe('/v1/orders/reference/:id');
+    // A reference without a digit (about one in six) is still an id.
+    expect(operationOf('/v1/orders/reference/VEL-XJSGVC')).toBe('/v1/orders/reference/:id');
     expect(operationOf('/v1/destinations/singapore')).toBe('/v1/destinations/singapore');
   });
 

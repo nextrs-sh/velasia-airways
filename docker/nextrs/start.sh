@@ -1,7 +1,7 @@
 #!/bin/sh
 # Velasia Airways storefront on NextRS: turns the container environment into `nextrs start`
 # flags (Milestone 8). Every flag used here is listed by `nextrs start --help` in
-# @nextrs/cli@0.1.0-rc.1; nothing is emulated and nothing falls back to Node.js (there is no
+# @nextrs/cli@0.1.0-rc.2; nothing is emulated and nothing falls back to Node.js (there is no
 # Node.js in this image).
 #
 # Environment (application variables are the same ones the Node.js image reads):

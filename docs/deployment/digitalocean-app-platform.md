@@ -11,7 +11,7 @@ This guide covers three independent App Platform apps built from this repository
 | ---------------- | --------------------------------------------- | ----------------------- | --------------------- | --------- | ------------------------------------------------------ |
 | `velasia-api`    | Retailing API (Fastify + TalaDB), shared      | `docker/Dockerfile.api` | `/` (repository root) | 4010      | `/health/ready` (readiness), `/health/live` (liveness) |
 | `velasia-node`   | Storefront on the official Next.js server     | `Dockerfile.node`       | `/`                   | 8080      | `/api/internal/health/live`                            |
-| `velasia-nextrs` | Storefront on NextRS `@nextrs/cli@0.1.0-rc.1` | `Dockerfile.nextrs`     | `/`                   | 8080      | `/api/internal/health/live`                            |
+| `velasia-nextrs` | Storefront on NextRS `@nextrs/cli@0.1.0-rc.2` | `Dockerfile.nextrs`     | `/`                   | 8080      | `/api/internal/health/live`                            |
 
 Ready-to-edit specs: [`deploy/digitalocean/`](../../deploy/digitalocean/).
 
@@ -102,11 +102,9 @@ Edit both specs with **identical values**:
 | `RETAILING_API_TIMEOUT_MS`    | RUN_TIME               | `5000`                                                                         |
 | `VELASIA_TODAY`               | RUN_AND_BUILD_TIME     | benchmarks only: same date in all three apps                                   |
 
-**Do not set `VELASIA_DEPLOYMENT_ID`** (Next.js `deploymentId`, version-skew protection) on
-either storefront. `velasia-node` would accept it, but NextRS `0.1.0-rc.1` refuses to serve
-such a build (`routes-manifest onMatchHeaders are not implemented`). `Dockerfile.nextrs`
-therefore fails its build when it is set, and setting it on only one app would make the two
-builds differ.
+**`VELASIA_DEPLOYMENT_ID`** (Next.js `deploymentId`, version-skew protection) is optional. Set
+it on both storefronts or on neither: NextRS serves such builds since `0.1.0-rc.2`, and setting
+it on only one app would make the two builds differ.
 
 **`SITE_URL` is needed at build time, before the URL exists.**
 

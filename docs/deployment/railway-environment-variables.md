@@ -31,7 +31,7 @@ No variable uses the `NEXT_PUBLIC_` prefix, and `pnpm railway:check` fails if on
 | `NODE_ENV`                                                                                                                                                           | `production` (the image's default too)                                 | `production` (inert: Next.js inlines it at build)            | `production`                                         | runtime                                    |
 | `SITE_URL`                                                                                                                                                           | `https://${{RAILWAY_PUBLIC_DOMAIN}}` (its own domain)                  | `https://${{RAILWAY_PUBLIC_DOMAIN}}` (its own domain)        | —                                                    | **build** + runtime, reference             |
 | `VELASIA_TODAY`                                                                                                                                                      | `2026-12-01`                                                           | `2026-12-01`                                                 | `2026-12-01`                                         | **build** + runtime                        |
-| `VELASIA_DEPLOYMENT_ID`                                                                                                                                              | unset (rc.1; see below)                                                | unset (rc.1 refuses it)                                      | —                                                    | **build**                                  |
+| `VELASIA_DEPLOYMENT_ID`                                                                                                                                              | the deployed commit (see below)                                        | the same value                                               | —                                                    | **build**                                  |
 | `VELASIA_NEXT_COMPRESS`                                                                                                                                              | unset (gzip on)                                                        | unset                                                        | —                                                    | **build**                                  |
 | `RETAILING_API_URL`                                                                                                                                                  | `http://${{velasia-api.RAILWAY_PRIVATE_DOMAIN}}:${{velasia-api.PORT}}` | same                                                         | —                                                    | runtime, reference                         |
 | `RETAILING_API_SERVICE_TOKEN`                                                                                                                                        | `${{shared.RETAILING_API_SERVICE_TOKEN}}`                              | same                                                         | same                                                 | **secret**, reference                      |
@@ -100,10 +100,9 @@ are public by design and reveal only status and uptime.
 - None of these build-time values reaches the runtime image. The runtime stages start from fresh
   base images.
 
-**`VELASIA_DEPLOYMENT_ID`** stays unset on both storefronts while NextRS is rc.1. With rc.1,
-`Dockerfile.nextrs` refuses a build that uses it, and a comparison must use the same policy on
-both sides. After the [rc.2 upgrade](railway.md#nextrs-rc2-upgrade), set the same value (the
-deployed commit) on both.
+**`VELASIA_DEPLOYMENT_ID`**: set the same value (the deployed commit) on both storefronts.
+NextRS serves deployment-ID builds since [rc.2](railway.md#nextrs-rc2-upgrade) (rc.1 refused
+them), and a comparison must use the same policy on both sides.
 
 ## Local equivalents
 
