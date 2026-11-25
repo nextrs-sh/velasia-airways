@@ -6,7 +6,9 @@
  *
  *   node benchmarks/railway/summarize.mjs <results-dir> <out-dir> [--label "local rehearsal"]
  *
- * Writes <out-dir>/summary.md, summary.csv, latency-p95.svg, latency-p99.svg and throughput.svg.
+ * Writes <out-dir>/summary.md, summary.csv, latency-p50.svg, latency-p95.svg and latency-p99.svg.
+ * No throughput chart: under a fixed offered load (RATE) throughput equals the offered rate by
+ * design; the summary table shows the achieved req/s for the record.
  * Every number comes from the k6 summaries and gate files that pair.mjs saved. Nothing is
  * estimated, and a missing value prints as "–".
  */
@@ -136,10 +138,12 @@ const csv = [
 
 /** A grouped bar chart (one group per workload/round, one bar per runtime), as plain SVG. */
 function chart(title, unit, key) {
-  const groups = [...new Set(comparable.map((r) => `${r.scenario} r${r.round}`))];
+  // One group per workload, round AND offered rate: without the rate, levels would collide.
+  const label = (r) => `${r.scenario} r${r.round}${r.rate ? ` @${r.rate}/s` : ''}`;
+  const groups = [...new Set(comparable.map(label))];
   const colors = { node: '#2f6f9f', nextrs: '#c2702a' };
   const max = Math.max(1, ...comparable.map((r) => r[key]).filter(Number.isFinite));
-  const width = 120 + groups.length * 110;
+  const width = 120 + groups.length * 130;
   const height = 320;
   const plot = { x: 70, y: 40, h: 220 };
   const parts = [
@@ -151,11 +155,9 @@ function chart(title, unit, key) {
     `<text x="${plot.x - 8}" y="${plot.y + plot.h}" text-anchor="end">0</text>`,
   ];
   groups.forEach((group, i) => {
-    const gx = plot.x + 20 + i * 110;
+    const gx = plot.x + 20 + i * 130;
     ['node', 'nextrs'].forEach((runtime, j) => {
-      const r = comparable.find(
-        (x) => `${x.scenario} r${x.round}` === group && x.runtime === runtime,
-      );
+      const r = comparable.find((x) => label(x) === group && x.runtime === runtime);
       const v = r?.[key];
       if (!Number.isFinite(v)) return;
       const h = (v / max) * plot.h;
@@ -181,9 +183,9 @@ mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'summary.md'), `${md.join('\n')}\n`);
 writeFileSync(join(outDir, 'summary.csv'), `${csv}\n`);
 if (comparable.length) {
+  writeFileSync(join(outDir, 'latency-p50.svg'), chart('p50 latency', 'ms', 'p50'));
   writeFileSync(join(outDir, 'latency-p95.svg'), chart('p95 latency', 'ms', 'p95'));
   writeFileSync(join(outDir, 'latency-p99.svg'), chart('p99 latency', 'ms', 'p99'));
-  writeFileSync(join(outDir, 'throughput.svg'), chart('Throughput', 'req/s', 'rps'));
 }
 console.log(
   `${pairs.length} pairs (${comparable.length / 2} comparable) → ${join(outDir, 'summary.md')}`,

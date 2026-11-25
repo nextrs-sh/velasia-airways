@@ -11,7 +11,9 @@
  */
 'use strict';
 
-const base = `http://127.0.0.1:${process.env.PORT || 4010}`;
+// The API's own port first: Railway also injects PORT (8080 on the API service), which is not
+// where the API listens unless the deployment sets PORT to it.
+const base = `http://127.0.0.1:${process.env.RETAILING_API_PORT || process.env.PORT || 4010}`;
 const headers = {};
 if (process.env.RETAILING_API_SERVICE_TOKEN) {
   headers['x-velasia-service-token'] = process.env.RETAILING_API_SERVICE_TOKEN;
