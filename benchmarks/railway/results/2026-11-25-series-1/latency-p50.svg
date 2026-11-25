@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="320" font-family="system-ui, sans-serif" font-size="12">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="70" y="22" font-size="14" font-weight="600">p50 latency (ms) — Railway iad, first series, measured</text>
+<line x1="70" y1="260" x2="1660" y2="260" stroke="#888"/>
+<text x="62" y="44" text-anchor="end">7.9</text>
+<text x="62" y="260" text-anchor="end">0</text>
+<rect x="90" y="101.27147784689237" width="34" height="158.72852215310763" fill="#2f6f9f"/>
+<text x="107" y="97.27147784689237" text-anchor="middle">5.7</text>
+<rect x="130" y="144.3934258758029" width="34" height="115.60657412419708" fill="#c2702a"/>
+<text x="147" y="140.3934258758029" text-anchor="middle">4.1</text>
+<text x="127" y="278" text-anchor="middle">static-assets r1 @2/s</text>
+<rect x="220" y="85.21964011714275" width="34" height="174.78035988285725" fill="#2f6f9f"/>
+<text x="237" y="81.21964011714275" text-anchor="middle">6.2</text>
+<rect x="260" y="130.91126795297697" width="34" height="129.08873204702303" fill="#c2702a"/>
+<text x="277" y="126.91126795297697" text-anchor="middle">4.6</text>
+<text x="257" y="278" text-anchor="middle">static-assets r2 @2/s</text>
+<rect x="350" y="64.6683046495452" width="34" height="195.3316953504548" fill="#2f6f9f"/>
+<text x="367" y="60.668304649545206" text-anchor="middle">7.0</text>
+<rect x="390" y="40.97924958700486" width="34" height="219.02075041299514" fill="#c2702a"/>
+<text x="407" y="36.97924958700486" text-anchor="middle">7.8</text>
+<text x="387" y="278" text-anchor="middle">rsc r1 @2/s</text>
+<rect x="480" y="88.59179283028729" width="34" height="171.4082071697127" fill="#2f6f9f"/>
+<text x="497" y="84.59179283028729" text-anchor="middle">6.1</text>
+<rect x="520" y="40" width="34" height="220" fill="#c2702a"/>
+<text x="537" y="36" text-anchor="middle">7.9</text>
+<text x="517" y="278" text-anchor="middle">rsc r2 @2/s</text>
+<rect x="610" y="97.15058931498669" width="34" height="162.8494106850133" fill="#2f6f9f"/>
+<text x="627" y="93.15058931498669" text-anchor="middle">5.8</text>
+<rect x="650" y="144.65602232298855" width="34" height="115.34397767701145" fill="#c2702a"/>
+<text x="667" y="140.65602232298855" text-anchor="middle">4.1</text>
+<text x="647" y="278" text-anchor="middle">static-assets r1 @5/s</text>
+<rect x="740" y="92.42474911706464" width="34" height="167.57525088293536" fill="#2f6f9f"/>
+<text x="757" y="88.42474911706464" text-anchor="middle">6.0</text>
+<rect x="780" y="129.81344403206438" width="34" height="130.18655596793562" fill="#c2702a"/>
+<text x="797" y="125.81344403206438" text-anchor="middle">4.7</text>
+<text x="777" y="278" text-anchor="middle">static-assets r2 @5/s</text>
+<rect x="870" y="76.68140622204439" width="34" height="183.3185937779556" fill="#2f6f9f"/>
+<text x="887" y="72.68140622204439" text-anchor="middle">6.5</text>
+<rect x="910" y="70.3594247514076" width="34" height="189.6405752485924" fill="#c2702a"/>
+<text x="927" y="66.3594247514076" text-anchor="middle">6.8</text>
+<text x="907" y="278" text-anchor="middle">rsc r1 @5/s</text>
+<rect x="1000" y="91.78869460959584" width="34" height="168.21130539040416" fill="#2f6f9f"/>
+<text x="1017" y="87.78869460959584" text-anchor="middle">6.0</text>
+<rect x="1040" y="71.22994037243498" width="34" height="188.77005962756502" fill="#c2702a"/>
+<text x="1057" y="67.22994037243498" text-anchor="middle">6.7</text>
+<text x="1037" y="278" text-anchor="middle">rsc r2 @5/s</text>
+<rect x="1130" y="91.91579352966221" width="34" height="168.0842064703378" fill="#2f6f9f"/>
+<text x="1147" y="87.91579352966221" text-anchor="middle">6.0</text>
+<rect x="1170" y="150.06186973862262" width="34" height="109.93813026137738" fill="#c2702a"/>
+<text x="1187" y="146.06186973862262" text-anchor="middle">3.9</text>
+<text x="1167" y="278" text-anchor="middle">static-assets r1 @10/s</text>
+<rect x="1260" y="110.63038163015943" width="34" height="149.36961836984057" fill="#2f6f9f"/>
+<text x="1277" y="106.63038163015943" text-anchor="middle">5.3</text>
+<rect x="1300" y="145.60758450207584" width="34" height="114.39241549792416" fill="#c2702a"/>
+<text x="1317" y="141.60758450207584" text-anchor="middle">4.1</text>
+<text x="1297" y="278" text-anchor="middle">static-assets r2 @10/s</text>
+<rect x="1390" y="99.56264126520688" width="34" height="160.43735873479312" fill="#2f6f9f"/>
+<text x="1407" y="95.56264126520688" text-anchor="middle">5.7</text>
+<rect x="1430" y="73.54150298926785" width="34" height="186.45849701073215" fill="#c2702a"/>
+<text x="1447" y="69.54150298926785" text-anchor="middle">6.7</text>
+<text x="1427" y="278" text-anchor="middle">rsc r1 @10/s</text>
+<rect x="1520" y="96.92132134012246" width="34" height="163.07867865987754" fill="#2f6f9f"/>
+<text x="1537" y="92.92132134012246" text-anchor="middle">5.8</text>
+<rect x="1560" y="73.84341891513918" width="34" height="186.15658108486082" fill="#c2702a"/>
+<text x="1577" y="69.84341891513918" text-anchor="middle">6.6</text>
+<text x="1557" y="278" text-anchor="middle">rsc r2 @10/s</text>
+<rect x="70" y="290" width="12" height="12" fill="#2f6f9f"/><text x="86" y="300">Node.js</text>
+<rect x="160" y="290" width="12" height="12" fill="#c2702a"/><text x="176" y="300">NextRS</text>
+</svg>

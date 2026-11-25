@@ -1,9 +1,9 @@
 # Railway benchmark readiness (Milestone 9)
 
-This document prepares the Node.js-versus-NextRS comparison on Railway. **No paired cloud
-benchmark has been run, and this document makes no performance claim.** Every number in a later
-report must come from a measured run, recorded as described below. Milestone 9.1 hardened the
-tooling and records its status in
+This document is the method for the Node.js-versus-NextRS comparison on Railway, and it makes
+no performance claim. Every number in a report must come from a measured run, recorded as
+described below. The first cloud series ran on 2026-11-25: the runtime-focused class only, 12
+of 12 pairs comparable, not yet publication quality. Its results and limits are in
 [`RAILWAY-CLOUD-BENCHMARK-REPORT.md`](../../benchmarks/railway/RAILWAY-CLOUD-BENCHMARK-REPORT.md).
 
 Both storefronts share **one** Fastify retailing API and **one** TalaDB database. That makes the
@@ -348,37 +348,43 @@ node benchmarks/railway/api-gate.mjs \
 `scrape-in-container.cjs` is read from stdin and runs inside the container with the container's
 own tokens. The same pattern through `docker exec -i` was validated locally.
 
-Should this work through `railway ssh`? The documentation and the CLI source agree; it has not
-been run:
+This works through `railway ssh`. It was verified on 2026-11-25 against the deployed API: the
+script arrived on stdin and ran in the container. Setting it up:
 
-- The documentation says that "piped input runs without a PTY". The CLI source
-  (`src/commands/ssh/native.rs`) runs the system `ssh` against `ssh.railway.com`, passes `-T`
-  when stdin is not a terminal, and inherits stdin.
-- It needs an SSH key registered with `railway ssh keys`; a project token cannot register one.
-- The command runs in the container's login shell. The API image has `/bin/sh`.
+- An SSH key must be registered with `railway ssh keys add`; a project token cannot register
+  one.
+- `ssh.railway.com` must be in `~/.ssh/known_hosts`. With stdin piped, ssh cannot ask to trust
+  the host, and fails with `Host key verification failed`. Railway publishes no host-key
+  fingerprint, so trusting it is a first-use decision.
+- A key with a passphrase must be loaded into the agent first
+  (`ssh-add --apple-use-keychain ~/.ssh/id_ed25519`). Otherwise Railway answers
+  `{"status":"no_ssh_key"}`.
+- Pass a script on stdin (`… -- node - < file` or `… -- sh -s < file`). Do not pass
+  `sh -c '…'`: the CLI re-quotes each word, and a quoted command line arrives as one word.
+- **Port trap:** Railway injects `PORT` into every service (8080 on the API service). The API
+  listens on `RETAILING_API_PORT` (4010). `scrape-in-container.cjs` reads `RETAILING_API_PORT`
+  first.
 
-Three points are still unverified: that stdin really arrives, how long one scrape takes, and
-whether it is fast enough for 2 s watch windows. Also, the fallback puts k6 on an external
-machine, so storefront traffic crosses the public internet from there. `pair.mjs` supports
-only the runner layout.
+The fallback still puts k6 on an external machine, so storefront traffic crosses the public
+internet from there. `pair.mjs` supports only the runner layout.
 
-**Railway behaviour, verified and not.** Checked 2026-11-25 against docs.railway.com and the
-`railwayapp/cli` source (CLI 5.75.0, `railway` SDK 3.17.0). None of it has been tried on this
-project yet, because no Railway login was available.
+**Railway behaviour.** Checked against docs.railway.com and the `railwayapp/cli` source (CLI
+5.75.0, `railway` SDK 3.17.0). The first cloud series confirmed each "Used" row on
+2026-11-25.
 
-| Topic                    | Finding                                                                                                                                                     | Status                  |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| Create the runner        | `railway add --repo nextrs-sh/velasia-airways --branch <b> --service velasia-bench-runner --variables …`. `RAILWAY_DOCKERFILE_PATH` selects the Dockerfile. | Documented / CLI source |
-| No public domain         | Railway services get no domain unless one is generated (PR environments are the exception)                                                                  | Documented              |
-| Resource limits          | No CLI flag. Use the dashboard: Settings → Deploy → Replica Limits                                                                                          | Documented              |
-| Delete the runner        | `railway service delete --service velasia-bench-runner --yes`                                                                                               | CLI source              |
-| Private DNS              | `<service>.railway.internal`. Environments created after 2025-10-16 resolve to IPv4 and IPv6. Runtime only, not during the build.                           | Documented              |
-| Variable references      | `${{shared.X}}` and `${{<service>.VAR}}`. Single-quote them in a shell.                                                                                     | Documented              |
-| Service metrics          | `railway metrics --cpu --memory --network --json` (30 s samples for windows up to 1 h). Network = public ingress/egress only.                               | Documented / CLI source |
-| Deployment identity      | `RAILWAY_GIT_COMMIT_SHA`, `RAILWAY_DEPLOYMENT_ID`, `RAILWAY_REPLICA_REGION` inside each container; `railway deployment list --json`                         | Documented              |
-| Copy results out         | `scp` through `ssh.railway.com` (SFTP is supported), or `railway ssh … cat` to stdout                                                                       | Documented              |
-| Cost                     | $20/vCPU-month and $10/GB-month, billed per minute; egress $0.05/GB. A 2 vCPU / 2 GB runner fully busy for 1 h is about $0.08.                              | Documented              |
-| `ssh` stdin, scrape time | See above                                                                                                                                                   | **Not run**             |
+| Topic                   | Finding                                                                                                                                                      | Status                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- |
+| Create the runner       | `railway add --repo nextrs-sh/velasia-airways --branch main --service velasia-bench-runner --variables …`. `RAILWAY_DOCKERFILE_PATH` selects the Dockerfile. | Used                   |
+| Runner placement        | The new service landed in the project's region (`iad`) with 1 replica and no domain; its cgroup limit was 2 vCPU / 0.93 GiB                                  | Used                   |
+| Resource limits         | No CLI flag. Use the dashboard: Settings → Deploy → Replica Limits. Read them with `railway metrics -a --json` (`limit`).                                    | Documented / used      |
+| Delete the runner       | `railway service delete --service velasia-bench-runner --yes`                                                                                                | Used                   |
+| Private DNS             | `<private endpoint>.railway.internal`; the endpoint is not always the service name (`@velasia/retailing-api` → `velasiaretailing-api`). IPv4 and IPv6.       | Used                   |
+| Private IPv4            | Interface `railnet0` is a `/9` (`10.128.0.0/9` here). A service's address can move to another /16 on redeploy (`10.228.x` → `10.146.x`).                     | Observed               |
+| Service metrics         | `railway metrics -s <svc> --cpu --memory --network --raw --json -S <iso> -U <iso>` gives 30 s samples. `--all` cannot be combined with `--raw`.              | Used                   |
+| Deployment identity     | `railway deployment list -s <svc> --json`: id, status, `meta.commitHash`, `meta.branch`                                                                      | Used                   |
+| Copy results out        | `railway ssh … -- sh -s` with a script that prints `tar -czf - … \| base64`. Check the SHA-256 on both sides.                                                | Used                   |
+| Cost                    | $20/vCPU-month and $10/GB-month, billed per minute; egress $0.05/GB. A 2 vCPU / 2 GB runner fully busy for 1 h is about $0.08.                               | Documented             |
+| Whole-project IaC apply | Deletes undeclared services. `railway config plan` on the current file shows 4 to add, 3 to destroy (report, section 11).                                    | Plan run (never apply) |
 
 ## What to record for every run
 

@@ -1,305 +1,296 @@
 # Railway cloud benchmark report (Milestone 9.1)
 
-**Status: engineering hardening done; cloud benchmark BLOCKED. No cloud measurement exists.**
+**Status: first cloud series run on 2026-11-25. Runtime-focused workloads only; 12 of 12
+pairs comparable. Not yet publication quality.**
 
-- Date: 2026-11-25.
-- Branch: `feat/m9-benchmark-execution-order`.
 - Method: [railway-benchmark-readiness.md](../../docs/deployment/railway-benchmark-readiness.md).
-
-Nothing in this report is a Node.js-versus-NextRS performance result. The workstation that
-prepared this milestone had no Railway CLI, no Railway login and no project token. So three
-things that every comparable pair needs could not be done:
-
-- create the temporary in-region runner;
-- read the private API's metrics;
-- record the deployments' Railway metadata.
-
-The tooling refuses to call a pair comparable without them. No paired cloud run was started.
-
-**Publication quality: no.** There is no cloud data to publish. The local numbers below come
-from a laptop's Docker. They show that the method works, and they say nothing about either
-runtime's performance.
-
-## Contents
-
-1. [Deployment environment](#1-deployment-environment)
-2. [Source revisions and versions](#2-source-revisions-and-versions)
-3. [CPU and memory allocations](#3-cpu-and-memory-allocations)
-4. [Load generator](#4-load-generator)
-5. [Shared API baseline](#5-shared-api-baseline)
-6. [Warm-up methodology](#6-warm-up-methodology)
-7. [Test execution order](#7-test-execution-order)
-8. [Workload definitions](#8-workload-definitions)
-9. [Results (A: runtime-focused, B: shared-API end-to-end)](#9-results)
-10. [Shared API bottleneck assessment](#10-shared-api-bottleneck-assessment)
-11. [Benchmark validity](#11-benchmark-validity)
-12. [Cost and resource usage](#12-cost-and-resource-usage)
-13. [Local rehearsal (method evidence only)](#13-local-rehearsal-method-evidence-only)
-14. [Blockers and how to unblock](#14-blockers-and-how-to-unblock)
-15. [Recommended NextRS improvements](#15-recommended-nextrs-improvements)
-16. [Recommendation on larger-scale testing](#16-recommendation-on-larger-scale-testing)
-
-## 1. Deployment environment
-
-Verified from outside, with public requests only
-([`preflight.mjs`](preflight.mjs), 2026-11-25 14:23 UTC: 24 of 24 checks passed):
-
-| Item                          | Node.js (`velasiaweb-production`)                  | NextRS (`velasiaweb-nextrs-production`)            |
-| ----------------------------- | -------------------------------------------------- | -------------------------------------------------- |
-| Ready, and reaches the API    | 200 `{"retailingApi":"ready"}`                     | 200 `{"retailingApi":"ready"}`                     |
-| Edge                          | `server: railway-hikari`, `x-railway-edge: sin1`   | `server: railway-hikari`, `x-railway-edge: sin1`   |
-| Home page                     | 200, gzip, prerendered, `x-nextjs-cache: HIT`      | 200, gzip, prerendered, `x-nextjs-cache: STALE`    |
-| JS / CSS assets               | 200, gzip, `public, max-age=31536000, immutable`   | 200, gzip, `public, max-age=31536000, immutable`   |
-| RSC navigation                | 307 to the `_rsc` URL, then 200 `text/x-component` | 307 to the `_rsc` URL, then 200 `text/x-component` |
-| API proxies                   | `/api/aircraft`, `/api/flights` 200, gzip          | `/api/aircraft`, `/api/flights` 200, gzip          |
-| Build fingerprint (18 assets) | `aabce950edd7ba81`                                 | `d544eda7dffa666f`                                 |
-| Deployment ID in HTML (`dpl`) | none                                               | none                                               |
-
-Notes:
-
-- **Both answers are gzip, but the public checks cannot tell who compressed them.** Railway's
-  edge may compress on its own (readiness precondition 3). Where compression happens has to be
-  checked from inside each container.
-- **No `dpl` deployment ID.** `VELASIA_DEPLOYMENT_ID` is not set in the deployed builds, so
-  `pair.mjs` tells a change of deployment by the asset fingerprint alone. Railway's own
-  deployment IDs come from the `DEPLOYMENTS` file.
-- **`STALE` on NextRS.** At that moment, NextRS served its home page from a stale
-  prerender-cache entry (stale-while-revalidate); Node.js served a fresh one. This is
-  storefront cache state. The warm-up before each measured run exists to even it out.
-- Timings from this workstation (about 300 to 950 ms) include the network trip from the
-  preparing workstation to Singapore. They are not benchmark latencies.
-
-**Not verified** (needs Railway access): region, replica count, CPU and memory limits, commit,
-Railway deployment IDs and status, whether a deploy or restart is in progress, the API's
-process identity and health from the inside, and whether other traffic is present. The
-deployed settings are the source of truth. `.railway/railway.ts` says what was intended (one
-region, `asia-southeast1-eqsg3a`; storefronts 1 vCPU / 1 GiB; API 1 vCPU / 768 MiB; one replica
-each), not what is running.
-
-## 2. Source revisions and versions
-
-**Not verified on Railway.** The NextRS rc.2 pin (`@nextrs/cli@0.1.0-rc.2`) and Next.js 16.4.6
-are in the repository at `main` `bcc0524`. The commit each Railway service runs is not known:
-`RAILWAY_GIT_COMMIT_SHA` inside each container, or the dashboard, will give it. The readiness
-doc lists where each version is read (`/app/nextrs-version.txt`, the image labels, and so on).
-
-## 3. CPU and memory allocations
-
-**Not verified.** The intended limits are in section 1. The effective ones are under Settings →
-Deploy → Replica Limits for each service, and in `cat /sys/fs/cgroup/cpu.max
-/sys/fs/cgroup/memory.max` in each container. `pair.mjs` refuses to run on a `DEPLOYMENTS`
-file in which the storefronts' limits differ.
-
-## 4. Load generator
-
-The runner was not created on Railway. Its image ([`Dockerfile.runner`](Dockerfile.runner):
-k6 2.3.0 and Node.js 24.18.0, by digest) was built and used in the local rehearsal. Planned
-configuration: same region as the services, 2 vCPU / 2 GB, no public domain, one replica,
-deleted after the session. `pair.mjs` records the runner's cgroup CPU and memory, and the k6
-and Node.js versions, in every `pair.json`.
-
-## 5. Shared API baseline
-
-**Not recorded.** The cloud API's metrics are private: they need the runner, or the
-`railway ssh` fallback. The gate is ready for them (section 11).
-
-## 6. Warm-up methodology
-
-1. **Series pre-warm** ([`prewarm.mjs`](prewarm.mjs)). Every offer key the paired workloads
-   can request is warmed through Node.js, then NextRS, sequentially, at no more than 5 requests/s.
-   The script then verifies the warm state:
-   - identical offer IDs on both storefronts;
-   - an offer store that does not grow during the check;
-   - the same API process throughout;
-   - a pinned API clock.
-2. **Storefront warm-up.** Before each measured run, the same workload runs on the same
-   runtime for `WARMUP` at the same offered rate. It is not measured.
-3. Why step 1 is needed: the pinned business date freezes the API's offer expiry
-   ([known issue](../../docs/deployment/known-issue-pinned-clock-offer-expiry.md)). Without
-   it, the first runtime creates offers and the second reuses them.
-
-## 7. Test execution order
-
-`pair.mjs` enforces the order:
-
-- Odd rounds run Node.js first; even rounds run NextRS first.
-- One k6 process at a time.
-- Baseline → warm-up → measured run → recovery for the first runtime, then the same for the
-  second.
-- The API must be the same process throughout the series (`SERIES_START=1`, then
-  `SERIES_BASELINE`).
-- Both deployments must be unchanged.
-
-Planned first cloud series: round 1 (Node.js first) and round 2 (NextRS first) for each
-workload, at 2, then 5, then 10 iterations/s. Measure for 60 s after a 30 s warm-up. Go on
-only while the previous level is clean.
-
-## 8. Workload definitions
-
-These are the readiness doc's two classes, never combined into one figure:
-
-- **A. Runtime-focused:** `static-assets`, `rsc`, `home`, `destination`, `cached`.
-- **B. Shared-API end-to-end:** `route-handler`, `offers`, `comparison`, `flight-search`.
-
-Excluded, and refused by `pair.mjs`:
-
-| Workload                                  | Why excluded                                                                                                           |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `server-action`                           | Not validated as read-only and deterministic                                                                           |
-| `payment`, `checkout`, `shopping-session` | They write to TalaDB                                                                                                   |
-| `mixed`                                   | It includes purchases                                                                                                  |
-| `manage-booking`, `my-trips`              | They need seeded bookings, which write to TalaDB. They belong to a separate, approved series on its own database file. |
-
-## 9. Results
-
-### A. Runtime-focused measurements
-
-No cloud data.
-
-### B. Shared-API end-to-end measurements
-
-No cloud data.
-
-For both classes, the throughput, p50/p95/p99, TTFB, error, status, bytes, compression, CPU and
-memory tables will come from [`summarize.mjs`](summarize.mjs). It reads only comparable pairs,
-from their k6 summaries and gate files. Storefront CPU and memory come from Railway's service
-metrics (`railway metrics --cpu --memory --json`, 30 s samples), matched to each run's window.
-NextRS compression-cache and isolate metrics are read from its container-local operations
-listener (`127.0.0.1:9100`).
-
-## 10. Shared API bottleneck assessment
-
-Not assessed in the cloud. In the local rehearsal at 5 iterations/s, the API stayed far from
-every saturation threshold (section 13).
-
-## 11. Benchmark validity
-
-Status of the tooling after this milestone:
-
-| Requirement                                       | Status                                                                                                                                                                  |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The API gate fails closed                         | Done. Missing, non-numeric or out-of-order metrics, a failed scrape after one retry, an incomplete baseline or a short watch are `invalid` (gate exit 5, pair exit 7)   |
-| Recovery is measured, not a sleep                 | Done. At least 2 consecutive healthy windows (default 3), with a time limit; a time-out stops the pair                                                                  |
-| Saturation is detected                            | Done. CPU, memory, event loop, backlog, probe-latency spikes, 5xx, 429 and restarts; thresholds in a validated JSON file                                                |
-| Process cleanup                                   | Done. k6, the watch and the recovery probes are stopped on every failure and on SIGINT, SIGTERM and SIGHUP; the watch also stops when its parent dies and at a time cap |
-| A failed k6 run, dropped iterations, k6 CPU-bound | Each one stops the pair                                                                                                                                                 |
-| A deployment changed, or the deployments differ   | Exit 5                                                                                                                                                                  |
-| Read-only safety                                  | Writes beyond the idle rate while traffic reached the API, any created session, and any created offer each stop the pair                                                |
-| `comparable: true` only with complete evidence    | `pairProblems()`; tested                                                                                                                                                |
-| CI                                                | `pnpm test:bench`, a step in the `verify` job (34 tests, no network, no secrets)                                                                                        |
-
-## 12. Cost and resource usage
-
-No Railway resources were created and no cloud load was generated. The public preflight sent
-24 GET requests in total. Estimated cost of one first-series session, from Railway's published
-rates, before any run:
-
-- The runner: about $0.08 per hour at 2 vCPU / 2 GB, fully busy.
-- Egress from the storefronts to the runner through the public domains: $0.05 per GB.
-
-The planned levels move far less than 1 GB.
-
-## 13. Local rehearsal (method evidence only)
-
-Setup:
-
-- Stack: `compose.dual-runtime.yaml` + `compose.railway-local.yaml`, images `:doctor-rc2`
-  (NextRS rc.2), on a 2-core Docker VM on a laptop.
-- Runner: the runner image on the private network, capped at 2 CPUs and 2 GB.
-- Runs were short: 10 s warm-up, 20 s measured.
-
-These numbers are **not** benchmark results.
-
-The rehearsal ran in two parts: first on the system clock, then with `VELASIA_TODAY=2026-12-01`,
-as on Railway.
-
-| Step                                                               | Result                                                                                                                                                                                                                         |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Preflight (local), seed (itineraries only)                         | Passed; 327 itineraries, 0 bookings, 0 accounts                                                                                                                                                                                |
-| `offers` round 1, **no pre-warm** (system clock)                   | Exit 6: "node: 76 offers created". The frozen-clock leak is real, and it is caught.                                                                                                                                            |
-| `prewarm.mjs`, system clock                                        | NOT VERIFIED: store 160 → 5,008 → 6,260 during the check. Offers live only 60 s. Correctly refused, and now reported as `apiClockPinned: false`.                                                                               |
-| `offers` rounds 1 and 2, system clock                              | Exit 6 (192 and 204 offers created). Round 2 ran NextRS first.                                                                                                                                                                 |
-| `static-assets` round 1 at 10/s, system clock                      | **Comparable** (exit 0)                                                                                                                                                                                                        |
-| `prewarm.mjs`, **pinned clock**                                    | **VERIFIED**: store 0 → 1,252 → 1,252, identical offers on both storefronts, one `serverTime`, one API process                                                                                                                 |
-| `offers` round 1 (Node.js first) and round 2 (NextRS first) at 5/s | **Comparable** (exit 0), 0 offers created; round 2 under `SERIES_BASELINE`                                                                                                                                                     |
-| `comparison` round 1 at 5/s                                        | **Comparable** (exit 0)                                                                                                                                                                                                        |
-| `rsc` round 2 at 5/s, 20 s baseline                                | Exit 6: "the run made the API write". The run had 0 API requests and the write was one order-sweep write. The baseline was too short to include a sweep: a gate defect, fixed (section 11, readiness doc "Background writes"). |
-| `rsc` round 2 and `static-assets` round 2, 60 s baseline           | See [Rehearsal re-run](#rehearsal-re-run)                                                                                                                                                                                      |
-
-### Rehearsal re-run
-
-With the gate fix and a 60 s baseline, on the pinned clock: **5 of 5 pairs are comparable**
-(exit 0). They cover all three classes of checks:
-
-- runtime-focused workloads with no API traffic: `rsc` and `static-assets` in round 2, NextRS
-  first;
-- `offers` in both orders, under one series baseline;
-- `comparison`.
-
-| Pair                        | Offered | Iterations (Node.js / NextRS) | API requests seen | Offers created | Writes | Shared API peaks during the runs                                      |
-| --------------------------- | ------- | ----------------------------- | ----------------- | -------------- | ------ | --------------------------------------------------------------------- |
-| `offers` r1 (Node.js first) | 5/s     | 100 / 101                     | 100 / 101         | 0 / 0          | none   | CPU ≤ 0.03 cores, in-flight 1, queue 0, loop p99 ≤ 12 ms, RSS 160 MiB |
-| `offers` r2 (NextRS first)  | 5/s     | 100 / 101                     | 100 / 101         | 0 / 0          | none   | Same                                                                  |
-| `comparison` r1             | 5/s     | 100 / 101                     | 100 / 101         | 0 / 0          | none   | CPU ≤ 0.04 cores, loop p99 ≤ 33 ms, RSS 162 MiB                       |
-| `rsc` r2 (NextRS first)     | 5/s     | 102 / 102                     | 0 / 0             | 0 / 0          | none   | CPU ≤ 0.09 cores, loop p99 ≤ 64 ms                                    |
-| `static-assets` r2          | 10/s    | 202 / 203                     | 0 / 0             | 0 / 0          | none   | CPU ≤ 0.09 cores, loop p99 ≤ 68 ms                                    |
-
-The API stayed far below every saturation threshold. For each pair:
-
-- every check passed;
-- no answer failed;
-- recovery after both runs was confirmed from the metrics;
-- k6 peaked below 0.8 of the runner's 2 cores.
-
-**Per-runtime latencies are deliberately not reproduced here.** The runner, both storefronts
-and the API shared one 2-core laptop VM. The numbers measure that contention, not the runtimes,
-and quoting them would invite exactly the claim this milestone must not make. They stay in the
-local rehearsal output, which is not committed.
-
-## 14. Blockers and how to unblock
-
-| Blocker                                              | What unblocks it                                                                                                                                                                                                     |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No Railway CLI or login on the workstation           | Install the CLI, `railway login`, `railway link` to the project. Register an SSH key (`railway ssh keys`) for `railway ssh`.                                                                                         |
-| Runner creation (cost) not authorized                | The owner approves the runner and a usage limit (readiness: minimum hard limit $10). Then: `railway add --repo nextrs-sh/velasia-airways --service velasia-bench-runner …`, Replica Limits 2 vCPU / 2 GB, no domain. |
-| Deployment metadata not recorded                     | Fill in `deployments.json` from `deployments.example.json` with Railway's values                                                                                                                                     |
-| `railway ssh` stdin and `config apply` with a runner | Both are documented (stdin is inherited without a PTY; a whole-project `apply` deletes undeclared services). Confirm stdin on the first `railway ssh` session. Never `apply` while the runner exists.                |
-
-Commands, in order, once unblocked (inside the runner):
-
-```bash
-node benchmarks/railway/preflight.mjs /tmp/preflight.json
-node benchmarks/node-baseline/lib/seed.mjs "$API_URL" /tmp/fixtures.json 0 0
-FIXTURES=/tmp/fixtures.json node benchmarks/railway/prewarm.mjs          # must print VERIFIED
-export FIXTURES=/tmp/fixtures.json DEPLOYMENTS=/tmp/deployments.json PREWARM=/tmp/velasia-bench/prewarm.json
-export API_CPU=1 API_MEMORY_MIB=768 RATE=2 WARMUP=30s DURATION=60s
-SERIES_START=1 node benchmarks/railway/pair.mjs static-assets 1
-export SERIES_BASELINE=/tmp/velasia-bench/round-1/static-assets/api-baseline.json
-node benchmarks/railway/pair.mjs static-assets 2
-# … rsc, home, destination, cached, route-handler, offers, comparison, flight-search; then RATE=5, RATE=10
-node benchmarks/railway/summarize.mjs /tmp/velasia-bench /tmp/velasia-summary --label "Railway, first series"
-```
-
-## 15. Recommended NextRS improvements
-
-None can be drawn from performance data: there is none. From the preflight only:
-
-- **Compression ownership.** Expose whether NextRS compressed a response (or the edge did),
-  for example in the operations metrics, so that compression comparisons do not depend on
-  Railway's edge.
-- **Prerender-cache state.** Expose prerender-cache freshness (HIT / STALE /
-  revalidations) on the operations listener, so that a benchmark can confirm both runtimes
-  are equally warm instead of inferring it from response headers.
-
-## 16. Recommendation on larger-scale testing
-
-**Do not proceed to larger-scale testing yet.** First:
-
-1. Run the first cloud series as planned above (2 → 5 → 10/s, both orders, runtime-focused
-   workloads first).
-2. Confirm on Railway that the gate reads the private metrics, that the runner is not the
-   limit, and that the API stays far from saturation.
-3. Have at least two comparable rounds per workload.
-
-Only then plan higher levels, still at a fixed offered load and well under the API's 1 vCPU.
-The shared API, not either runtime, is the expected first limit for the end-to-end class.
+- Results: [`results/2026-11-25-series-1/`](results/2026-11-25-series-1/). It holds the summary
+  table, CSV and charts, and the per-run Railway service metrics. Raw k6 and gate files are kept
+  locally (gitignored).
+
+**What this series measured:** static JS/CSS assets and RSC navigation payloads, served by the
+two deployed storefronts, at fixed offered loads of 2, 5 and 10 requests per second. It ran in
+both orders, with the shared API idle and untouched.
+
+**What it did not measure:**
+
+- capacity or peak throughput;
+- any shared-API (end-to-end) workload;
+- SSR or Cache Components pages;
+- anything statistically strong: two rounds per level, 60 s each.
+
+Section 10 explains why the data is not yet publication quality.
+
+## 1. Deployment environment (verified with the Railway CLI)
+
+The deployed project is **not** the one `.railway/railway.ts` describes (section 11). The
+values below are what is actually running. They were read on 2026-11-25 with `railway config
+pull`, `railway deployment list --json`, `railway metrics --json`, `railway variables` (only
+non-secret values printed) and `railway ssh`.
+
+| Item                          | Node.js storefront               | NextRS storefront                 | Shared API                |
+| ----------------------------- | -------------------------------- | --------------------------------- | ------------------------- |
+| Service                       | `@velasia/web`                   | `@velasia/web-nextrs`             | `@velasia/retailing-api`  |
+| Deployment                    | `edf2d338-8396-…`                | `376caa49-e9b9-…`                 | `62a05b98-f084-…`         |
+| Commit                        | `d04127a` (`main`)               | `d04127a` (`main`)                | `d04127a` (`main`)        |
+| Region                        | `iad` (US East)                  | `iad`                             | `iad`                     |
+| Replicas                      | 1                                | 1                                 | 1                         |
+| Limits                        | 2 vCPU, 1 GB                     | 2 vCPU, 1 GB                      | 2 vCPU, 1 GB              |
+| Build                         | `Dockerfile.node`                | `Dockerfile.nextrs`               | Railpack (`pnpm … start`) |
+| Runtime                       | Node.js v24.18.0, Next.js 16.4.6 | NextRS 0.1.0-rc.2, Next.js 16.4.6 | Node.js v22.23.5          |
+| Build fingerprint (18 assets) | `04545b0aba18cf1a`               | `04545b0aba18cf1a`                | n/a                       |
+
+How the storefronts were reached:
+
+- Through their public domains; the runner reached both through the `iad1` edge.
+- Compression on every checked answer: gzip.
+- Health checks on `/api/internal/health/ready`.
+- No `dpl` deployment ID in the HTML, because `VELASIA_DEPLOYMENT_ID` is not set.
+
+The two storefronts have the **same build fingerprint**: one source, two runtimes. Before the
+redeploys between 15:13 and 15:25 UTC, the fingerprints differed.
+
+Differences from the Milestone 9 design, all in the running deployment:
+
+- **Region** `iad`, not Singapore (`asia-southeast1-eqsg3a`).
+- **No volume** in the environment. The API writes TalaDB to `/data/velasia.db` on the
+  container's own disk, and every API redeploy starts with an empty database. The
+  `TALADB_REQUIRE_VOLUME` guard is in `docker/api/start.sh`, which a Railpack build does not
+  use.
+- **`VELASIA_TODAY` is not set.** The API runs on the real clock, so offers are reused for only
+  60 s.
+- **No service token and no metrics token.** The private API, including `/metrics`, answers
+  without one.
+- Stale local values on the API: `SITE_URL=http://localhost:8080`, `VELASIA_TAG=local`.
+- **NextRS outbound policy:** `NEXTRS_NET_ALLOW_ADDR=fd12::/16,10.0.0.0/8`, set in the
+  dashboard. The API's private interface is `railnet0 10.146.207.192/9`, so the actual subnet
+  is `10.128.0.0/9`. The API's IPv4 moved from `10.228.244.185` to `10.146.207.192` when it was
+  redeployed at 15:17 UTC, which is what broke NextRS between 15:19 and 15:21 UTC.
+
+## 2. Load generator
+
+The temporary service `velasia-bench-runner`:
+
+- **Built from** `main` at `d04127a` with `benchmarks/railway/Dockerfile.runner`: k6 v2.3.0,
+  Node.js v24.18.0.
+- **Placement and size:** region `iad`, 1 replica, no public domain, cgroup limit 2 vCPU / 0.93
+  GiB.
+- **Reaching the services:** the private API at `velasiaretailing-api.railway.internal:4010`;
+  the storefronts through their public domains, the same way for both.
+- **Commands:** run through `railway ssh` (stdin forwarding verified).
+- **Lifetime:** created at 15:51 UTC and **deleted at about 17:05 UTC**, after the results were
+  copied out (SHA-256 of the archive checked on both sides).
+
+k6 used at most 0.12 of the runner's 2 cores and dropped no iterations.
+
+## 3. Execution order and settings
+
+The series ran from 15:52 to 17:02 UTC. Every step was run by `pair.mjs`.
+
+| Setting             | Value                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| Workloads           | `static-assets`, `rsc` (runtime-focused class)                                                         |
+| Offered load        | 2, then 5, then 10 iterations/s (`RATE`, constant arrival rate; one request per iteration)             |
+| Warm-up / measured  | 30 s / 60 s per runtime, `PICK=cycle`, `accept-encoding: gzip`                                         |
+| Order               | Round 1 Node.js first, round 2 NextRS first, at every level                                            |
+| Series              | One API process throughout. The first pair used `SERIES_START=1`; every later pair named its baseline. |
+| API baseline        | 6 × 10 s idle windows before every pair                                                                |
+| Recovery            | Metrics-confirmed after every run (3 healthy 10 s windows, at least 30 s quiet)                        |
+| Stop rule           | Any pair not exiting 0 stops the series and skips the higher levels (none did)                         |
+| Deployment metadata | `deployments.json` (above), checked by `deploymentProblems()`: no findings                             |
+
+## 4. Shared API during the series
+
+The API was idle and unchanged throughout:
+
+- **One process** (one start time in all 12 baselines).
+- **Traffic:** no workload requests in any run, 0 offers created, no writes, no background
+  writes.
+- **Peaks while runs were measured:**
+  - 0.028 vCPU;
+  - 1 request in flight, writer queue 0;
+  - event-loop p99 12.7 ms;
+  - RSS 142 MiB;
+  - probe p50 5.5 ms.
+- **Idle baselines:** CPU at most 0.007–0.008 vCPU; probe p50 2.6–3.2 ms.
+- **Recovery** after each run: 50 s, the configured minimum. In other words, recovery was
+  immediate.
+
+Neither workload calls the API, so **no result below involves the shared API**.
+
+## 5. Results: A. Runtime-focused
+
+All values are k6 measurements from the runner in `iad`, through Railway's edge to each
+storefront. Latency includes that network path; it is the same for both runtimes. Every check
+passed: no failed requests, no 5xx or 429, and every text answer of 1 KiB or more came back
+compressed. Full table: [`summary.md`](results/2026-11-25-series-1/summary.md). Charts:
+[p50](results/2026-11-25-series-1/latency-p50.svg),
+[p95](results/2026-11-25-series-1/latency-p95.svg),
+[p99](results/2026-11-25-series-1/latency-p99.svg).
+
+### `static-assets` (`/_next/static` JS and CSS of this build)
+
+| Offered | Round (first) | Node.js p50 / p95 / p99 (ms) | NextRS p50 / p95 / p99 (ms) |
+| ------- | ------------- | ---------------------------- | --------------------------- |
+| 2/s     | 1 (Node.js)   | 5.7 / 11.5 / 16.4            | 4.1 / 7.1 / 11.5            |
+| 2/s     | 2 (NextRS)    | 6.2 / 16.1 / 19.0            | 4.6 / 9.7 / 15.7            |
+| 5/s     | 1 (Node.js)   | 5.8 / 12.7 / 20.3            | 4.1 / 8.5 / 15.3            |
+| 5/s     | 2 (NextRS)    | 6.0 / 12.3 / 19.6            | 4.7 / 10.6 / 21.8           |
+| 10/s    | 1 (Node.js)   | 6.0 / 13.0 / 25.9            | 3.9 / 8.6 / 14.3            |
+| 10/s    | 2 (NextRS)    | 5.3 / 11.9 / 16.9            | 4.1 / 11.0 / 343.8          |
+
+### `rsc` (RSC payloads of `/`, `/destinations` and 12 destination pages)
+
+| Offered | Round (first) | Node.js p50 / p95 / p99 (ms) | NextRS p50 / p95 / p99 (ms) |
+| ------- | ------------- | ---------------------------- | --------------------------- |
+| 2/s     | 1 (Node.js)   | 7.0 / 13.0 / 20.2            | 7.8 / 13.3 / 15.7           |
+| 2/s     | 2 (NextRS)    | 6.1 / 11.8 / 22.1            | 7.9 / 15.2 / 23.5           |
+| 5/s     | 1 (Node.js)   | 6.5 / 13.1 / 20.5            | 6.8 / 11.1 / 17.6           |
+| 5/s     | 2 (NextRS)    | 6.0 / 11.8 / 35.5            | 6.7 / 12.7 / 18.0           |
+| 10/s    | 1 (Node.js)   | 5.7 / 11.1 / 19.3            | 6.7 / 11.2 / 22.2           |
+| 10/s    | 2 (NextRS)    | 5.8 / 11.3 / 17.2            | 6.6 / 13.3 / 26.5           |
+
+What the measurements show, and no more:
+
+- **`static-assets`:** NextRS had the lower p50 in 6 of 6 pairs (3.9–4.7 ms against 5.3–6.2
+  ms), and the lower p95 in 6 of 6, in both orders. p99 is mixed. One NextRS run had a single
+  343.8 ms p99 outlier; at 600 requests that is about 6 slow requests.
+- **`rsc`:** Node.js had the lower p50 in 6 of 6 pairs (5.7–7.0 ms against 6.6–7.9 ms), and
+  the lower TTFB p95 in 5 of 6. p95 and p99 are mixed.
+- **Size of the differences:** about 1–2 ms at the median, on an edge-inclusive path, at very
+  low load.
+
+### Resource use
+
+Railway service metrics were read for the series window and matched to each measured minute
+([`railway-service-metrics.csv`](results/2026-11-25-series-1/railway-service-metrics.csv)).
+
+| Offered | Node.js CPU avg (vCPU) | NextRS CPU avg (vCPU) | Node.js memory max (MiB) | NextRS memory max (MiB) |
+| ------- | ---------------------- | --------------------- | ------------------------ | ----------------------- |
+| 2/s     | 0.006–0.014            | 0.005–0.022           | 95–101                   | 137–147                 |
+| 5/s     | 0.017–0.030            | 0.008–0.035           | 101–199                  | 159–185                 |
+| 10/s    | 0.023–0.041            | 0.010–0.054           | 202–220                  | 165–230                 |
+
+**These CPU numbers cannot rank the runtimes.** Railway samples every 30 s, so each 60 s run
+has two samples. All values are under 3 % of the 2 vCPU limit, and the ranges overlap.
+
+Memory grew on both storefronts over the series: Node.js from 89 to 220 MiB, NextRS from 129
+to 230 MiB. That is cache growth during warm-up and load; neither was near its limit.
+Railway's network metrics cover public traffic only and are not broken out per run. NextRS's
+compression-cache and isolate metrics, on its container-local listener, were not collected in
+this series.
+
+## 6. Results: B. Shared-API end-to-end
+
+**Not run.** The API runs on the real clock (`VELASIA_TODAY` unset), so the offer workloads
+cannot be pre-warmed into an equivalent state. `prewarm.mjs` would refuse to verify, and
+`pair.mjs` would refuse the pairs (`offersCreated > 0`), exactly as in the local rehearsal.
+`route-handler` and `flight-search` do not create offers and could be run. They were left out
+of this first series to keep it to the runtime-focused class.
+
+## 7. Benchmark validity
+
+| Requirement                    | This series                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------------- |
+| Same revision, limits, region  | Yes: `d04127a`, 2 vCPU / 1 GB, `iad`, 1 replica each (`deployments.json`)    |
+| Unchanged deployments          | Yes: same fingerprint before and after every pair                            |
+| Same API process; API idle     | Yes: one start time; 0 workload requests; recovery confirmed after every run |
+| Same offered load and sequence | Yes: `RATE`, `PICK=cycle`; iteration counts within 2 % in every pair         |
+| Load generator not the limit   | Yes: 0 dropped iterations; k6 at most 0.12 of 2 cores                        |
+| Valid k6 evidence              | Yes: every check passed; status distribution complete                        |
+| No writes, no cache leakage    | Yes: no writes, 0 offers created, 0 sessions                                 |
+| Comparable pairs               | **12 of 12**; none stopped                                                   |
+
+## 8. Cost and resource usage
+
+The runner ran for about 75 minutes (15:51–17:05 UTC) and was then deleted. At Railway's
+published rates ($20/vCPU-month, $10/GB-month, billed per minute on actual use, $0.05/GB
+egress):
+
+- **Runner CPU:** at most 0.12 vCPU for k6, well under $0.01.
+- **Runner reservation:** a fully busy 2 vCPU / 1 GB runner for the same 75 minutes would
+  have cost about $0.07.
+- **Egress:** k6 received 188 MB from the storefronts, warm-ups included; about $0.01.
+
+Changes made to the Railway account:
+
+- the runner was created and deleted;
+- an SSH key (`velasia-bench`, the existing `~/.ssh/id_ed25519.pub`) was registered;
+- `ssh.railway.com` was added to `~/.ssh/known_hosts`.
+
+No application service was redeployed or reconfigured by this work.
+
+## 9. Local rehearsal (method evidence, before the cloud series)
+
+On the local Railway-like stack, with these confirmed:
+
+- the frozen-clock leak ("76 offers created" without pre-warm);
+- the pre-warm refusing on the system clock and verifying on the pinned clock (offer store 0 →
+  1,252 → 1,252);
+- 5 of 5 comparable pairs on the pinned clock, including `offers` in both orders.
+
+It also found a gate defect, since fixed: a 20 s baseline let one order-sweep write count
+against a run with no traffic. The laptop's per-runtime latencies are not reproduced: the
+runner, both storefronts and the API shared one 2-core VM.
+
+## 10. Is this publication quality?
+
+**Not yet.** It is valid by the method, and too thin to publish:
+
+1. **Two rounds per level, 60 s per run.** p99 rests on 120–600 requests, and one outlier
+   moves it by hundreds of ms. At least 5 rounds per level and longer runs are needed, with
+   the spread between rounds reported.
+2. **Very low load.** At 2–10 requests/s, both runtimes use under 3 % of their CPU. The
+   series shows behaviour at idle-like load, not efficiency under load.
+3. **CPU resolution.** Railway's 30 s samples cannot rank two runtimes at this load. A
+   per-container reading from inside each storefront during the run would be needed.
+4. **Edge-inclusive latency.** The runner went through the public domains. That is fair to
+   both runtimes, but every number includes Railway's edge.
+5. **The deployment is not the designed one** (region, no volume, unpinned clock, no tokens).
+   For runtime-focused workloads that is acceptable. The end-to-end class needs the pinned
+   clock first.
+
+The direction is consistent in both orders: static assets lower at the median on NextRS, and
+RSC payloads lower at the median on Node.js. The differences are small (1–2 ms). Treat both
+as hypotheses for a larger series, not as findings.
+
+## 11. Outstanding issues
+
+1. **The IaC file does not describe production.** `railway config plan` on
+   `.railway/railway.ts` shows **4 to add, 3 to destroy**: different service names, branch,
+   build and region, and a volume that does not exist. **Never run `railway config apply`
+   with the current file.** The alignment is pending the owner's decision: describe the
+   deployment as it is, or bring the deployment to the design.
+2. **No persistent storage for TalaDB.** Every API redeploy loses all bookings.
+3. **NextRS allow-list:** the observed subnet is `10.128.0.0/9`, narrower than the
+   `10.0.0.0/8` that is set. `pnpm railway:check` still rejects anything wider than /16. That
+   rule cannot hold on Railway, where the private IPv4 moves between /16s.
+4. **`scrape-in-container.cjs`** read `PORT` (8080 on Railway) before `RETAILING_API_PORT`
+   (4010). Fixed on this branch.
+5. **`server-action`** remains excluded until it is shown to be read-only and deterministic.
+
+## 12. Recommended NextRS improvements
+
+From this series only:
+
+- **RSC payload path.** NextRS was slightly slower at the median on RSC requests (by about 1
+  ms) and faster on static assets. If the RSC difference holds in a larger series, profile the
+  RSC route: payload rendering, or compression of `text/x-component`.
+- **Tail latency.** Investigate the single 343.8 ms p99 outlier on static assets at 10/s.
+  NextRS's own metrics (compression cache, isolate) would show whether it was a cache miss or
+  isolate contention. Collect them in the next series.
+- **Observability.** Expose compression-cache hits and prerender-cache freshness on the
+  operations listener, so that warm-state equivalence can be proven, not inferred.
+
+## 13. Recommendation on larger-scale testing
+
+**Not yet.** Next steps, in order:
+
+1. Decide the IaC and deployment questions in section 11. At least set `VELASIA_TODAY` and
+   attach a volume, or the end-to-end class stays blocked.
+2. Repeat the runtime-focused series with 5 rounds per level and 120 s runs, adding
+   `home`, `destination` and `cached`. Read each storefront's CPU from inside the container,
+   at 1 s resolution.
+3. Run the end-to-end class on the pinned clock, after `prewarm.mjs` verifies.
+4. Only then raise the offered load in steps, still at a fixed rate, and still far below the
+   API's limit.
