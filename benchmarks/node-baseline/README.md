@@ -30,6 +30,33 @@ Results: [`results/`](results/). Each run directory has `summary.md` (the table)
 Checkout and payment are driven at the API level: in the storefront they are Server Actions
 whose cost is the API's plus the action pipeline measured in scenario 9.
 
+Milestone 9 adds two storefront-only scenarios for the Railway comparison. They are not in
+`run-baseline.mjs`'s default list, so the M7 runs stay reproducible:
+
+| Scenario        | Requests                                                                                 |
+| --------------- | ---------------------------------------------------------------------------------------- |
+| `static-assets` | The `/_next/static/*` URLs of `/` and `/destinations` (found in `setup()`), with gzip    |
+| `rsc`           | `/`, `/destinations`, `/destinations/<slug>` as RSC payloads (`RSC: 1` + the `_rsc` key) |
+
+`-e PICK=cycle` makes every scenario walk its lists in a fixed order instead of at random, so
+two runtimes get the same request sequence. The paired Railway runs use it
+([`../railway/pair.mjs`](../railway/pair.mjs),
+[procedure](../../docs/deployment/railway-benchmark-readiness.md)). `lib/seed.mjs` sends
+`RETAILING_API_SERVICE_TOKEN` from the environment when it is set, for an API that requires it.
+
+Milestone 9.1 adds, without changing the defaults:
+
+- `-e RATE=<iterations/s>`: a fixed offered load (`constant-arrival-rate`; `PRE_VUS` /
+  `MAX_VUS` size the VU pool). k6 then reports `dropped_iterations` when it fell behind.
+- `-e ACCEPT_ENCODING=gzip`: page requests carry that header, as a browser's would.
+- Per-answer status counters (`velasia_status_2xx` … `velasia_status_5xx`,
+  `velasia_status_429`) and `velasia_compressed` (the share of text answers of 1 KiB or more
+  that came back encoded).
+
+`node lib/seed.mjs <api> fixtures.json 0 0` seeds **itineraries only**: it searches, and books
+nothing and registers nobody. Use that against a shared or live database. The default counts
+(40 bookings, 10 accounts) write to TalaDB and consume seats.
+
 Every request **checks its answer** (status and content: a booking page must contain its
 order id, a search page must be a complete document, a purchase must end `CONFIRMED`). The
 `Correct` column is the share of passing checks. Seat conflicts under load

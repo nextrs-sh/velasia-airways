@@ -6,17 +6,22 @@
  *
  * Writes the itinerary ids the scenarios shop for, confirmed bookings with their guest tokens
  * (Manage Booking pages), and demo accounts with linked bookings (My Trips pages).
+ *
+ * Against an API that requires the shared service token (Railway, compose.dual-runtime), export
+ * RETAILING_API_SERVICE_TOKEN first; it is read from the environment and never printed.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 
 const [apiUrl, out, bookingCount = '40', accountCount = '10'] = process.argv.slice(2);
+const serviceToken = process.env.RETAILING_API_SERVICE_TOKEN;
 const api = async (path, { method = 'GET', body, bearer, headers = {} } = {}) => {
   const response = await fetch(new URL(path, apiUrl), {
     method,
     headers: {
       ...(body ? { 'content-type': 'application/json' } : {}),
       ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+      ...(serviceToken ? { 'x-velasia-service-token': serviceToken } : {}),
       ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,

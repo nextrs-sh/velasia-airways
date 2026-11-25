@@ -1,0 +1,34 @@
+{
+  "recordedAt": "2026-11-25T00:00:00Z",
+  "recordedBy": "operator, from the Railway dashboard / `railway deployment list --json` / RAILWAY_* variables inside each container",
+  "nextrsVersion": "0.1.0-rc.2",
+  "services": {
+    "velasia-node": {
+      "deploymentId": "<Railway deployment id>",
+      "commit": "<RAILWAY_GIT_COMMIT_SHA>",
+      "region": "asia-southeast1-eqsg3a",
+      "replicas": 1,
+      "cpu": 1,
+      "memoryBytes": 1073741824,
+      "status": "SUCCESS"
+    },
+    "velasia-nextrs": {
+      "deploymentId": "<Railway deployment id>",
+      "commit": "<RAILWAY_GIT_COMMIT_SHA>",
+      "region": "asia-southeast1-eqsg3a",
+      "replicas": 1,
+      "cpu": 1,
+      "memoryBytes": 1073741824,
+      "status": "SUCCESS"
+    },
+    "velasia-api": {
+      "deploymentId": "<Railway deployment id>",
+      "commit": "<RAILWAY_GIT_COMMIT_SHA>",
+      "region": "asia-southeast1-eqsg3a",
+      "replicas": 1,
+      "cpu": 1,
+      "memoryBytes": 805306368,
+      "status": "SUCCESS"
+    }
+  }
+}

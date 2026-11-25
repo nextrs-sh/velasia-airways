@@ -355,8 +355,12 @@ or overwrites the database automatically.
 
 ### Resetting fixtures for an isolated benchmark (manual, non-destructive)
 
-Bookings consume seats, so later runs see different inventory. For a clean, repeatable run, point
-the API at a **new file** on the same volume instead of deleting anything:
+Bookings consume seats, so later runs see different inventory. For a clean, repeatable benchmark
+series, point the API at a **new file** on the same volume instead of deleting anything. Do this
+only **between series**, never between the paired runs of one series: the switch redeploys the
+API ([benchmark order](railway-benchmark-readiness.md#mandatory-execution-order)).
+
+Steps:
 
 1. In `.railway/railway.ts`, set `TALADB_PATH` to `/data/bench-<yyyymmdd>-<n>.db`, then plan and
    apply. Or set the variable in the dashboard for a one-off run.

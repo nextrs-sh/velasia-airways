@@ -1,0 +1,25 @@
+# Temporary benchmark runner for Railway (docs/deployment/railway-benchmark-readiness.md).
+#
+# Not part of the application and deliberately NOT declared in .railway/railway.ts: create it by
+# hand for one benchmark session, in the same region as the three services, and delete it right
+# afterwards. It runs on its own resources, so load generation never uses the storefronts' CPU
+# or memory, and it is on the project's private network, so the API gate can read the private
+# API's metrics. It contains k6, Node.js (for api-gate.mjs and the fixture seeder) and the
+# benchmark scripts; no application code, no secrets (they come from service variables).
+#
+#   RAILWAY_DOCKERFILE_PATH=benchmarks/railway/Dockerfile.runner   (repository root as context)
+#   docker build -f benchmarks/railway/Dockerfile.runner -t velasia-bench-runner .
+ARG NODE_IMAGE=node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
+ARG K6_IMAGE=grafana/k6:2.3.0@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8
+
+FROM ${K6_IMAGE} AS k6
+
+FROM ${NODE_IMAGE}
+# k6 is a static binary.
+COPY --from=k6 /usr/bin/k6 /usr/local/bin/k6
+WORKDIR /bench
+COPY benchmarks/ ./benchmarks/
+USER node
+# Serves no traffic: it idles until an operator runs commands through `railway ssh`. Results go
+# to /tmp and are copied out before the service is deleted.
+CMD ["sleep", "infinity"]

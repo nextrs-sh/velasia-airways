@@ -15,6 +15,7 @@
     "typecheck": "turbo run typecheck && tsc -p tests/e2e",
     "test": "turbo run test",
     "test:e2e": "turbo run build --filter=@velasia/web && playwright test",
+    "test:bench": "node --test benchmarks/railway/*.test.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "docker:build": "sh scripts/docker/compose.sh build",

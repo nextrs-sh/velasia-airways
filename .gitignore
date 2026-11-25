@@ -182,3 +182,8 @@ benchmarks/**/results/raw-local/
 !.railway/railway.ts
 !.railway/package.json
 !.railway/tsconfig.json
+
+# Milestone 9.1: raw paired-run output (k6 summaries, gate samples, logs) and the operator's
+# real Railway metadata stay local; only curated summaries and the example are committed.
+benchmarks/railway/results/raw/
+benchmarks/railway/deployments.json
