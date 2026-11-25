@@ -58,6 +58,11 @@ jobs:
       - name: Unit, integration, TalaDB persistence, crash, backup/restore tests
         run: pnpm test
 
+      # Gate logic, comparability rules and pair.mjs end to end against local fakes (fake API,
+      # fake storefronts, fake k6). No Railway, no network beyond 127.0.0.1, no secrets.
+      - name: Benchmark gate tests
+        run: pnpm test:bench
+
       - name: Production build
         run: pnpm build
 
