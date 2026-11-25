@@ -8,6 +8,16 @@
  * answered. Business refusals that are correct outcomes under load (a seat sold meanwhile:
  * INVENTORY_UNAVAILABLE / SEAT_UNAVAILABLE) are counted separately and are not errors.
  * Synthetic data only. Benchmark rules: docs in ../README.md.
+ *
+ * Railway paired runs (docs/deployment/railway-benchmark-readiness.md) add `-e PICK=cycle`:
+ * requests then walk every list in the same order on both runtimes instead of sampling at
+ * random. `static-assets` and `rsc` need no FIXTURES file.
+ *
+ * `-e RATE=<iterations per second>` replaces the closed model (VUS looping as fast as they can)
+ * with a fixed offered load (constant-arrival-rate; `PRE_VUS` / `MAX_VUS` size the pool). k6
+ * then reports `dropped_iterations` when it could not start an iteration on time. Every
+ * scenario here except `cached` (2) issues one request per iteration.
+ * `-e ACCEPT_ENCODING=gzip` sends that header on every page request, as a browser would.
  */
 import { check } from 'k6';
 import encoding from 'k6/encoding';
@@ -18,19 +28,31 @@ import { Counter, Rate, Trend } from 'k6/metrics';
 const WEB = __ENV.WEB;
 const API = __ENV.API;
 const SCENARIO = __ENV.SCENARIO;
-const fixtures = JSON.parse(open(__ENV.FIXTURES));
+const fixtures = __ENV.FIXTURES
+  ? JSON.parse(open(__ENV.FIXTURES))
+  : { itineraries: [], bookings: [], accounts: [] };
 const action = __ENV.ACTION ? JSON.parse(open(__ENV.ACTION)) : null;
 const actionBody = action ? encoding.b64decode(action.body) : null;
 
+const RATE = Number(__ENV.RATE ?? 0);
+const closedModel = {
+  executor: 'constant-vus',
+  vus: Number(__ENV.VUS ?? 20),
+  duration: __ENV.DURATION ?? '60s',
+  gracefulStop: '10s',
+};
+const openModel = {
+  executor: 'constant-arrival-rate',
+  rate: RATE,
+  timeUnit: '1s',
+  duration: __ENV.DURATION ?? '60s',
+  preAllocatedVUs: Number(__ENV.PRE_VUS ?? Math.max(2, Math.ceil(RATE * 2))),
+  maxVUs: Number(__ENV.MAX_VUS ?? Math.max(10, Math.ceil(RATE * 10))),
+  gracefulStop: '10s',
+};
+
 export const options = {
-  scenarios: {
-    main: {
-      executor: 'constant-vus',
-      vus: Number(__ENV.VUS ?? 20),
-      duration: __ENV.DURATION ?? '60s',
-      gracefulStop: '10s',
-    },
-  },
+  scenarios: { main: RATE > 0 ? openModel : closedModel },
   summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max', 'count'],
   discardResponseBodies: false,
 };
@@ -48,7 +70,13 @@ const step = {
   payment: new Trend('velasia_step_payment_ms', true),
 };
 
-const pick = (list) => list[Math.floor(Math.random() * list.length)];
+// The M7 baseline sampled at random (still the default, so its runs stay reproducible).
+// PICK=cycle: the n-th iteration of the test takes item n, so two runs issue the same sequence.
+const CYCLE = __ENV.PICK === 'cycle';
+const pick = (list) =>
+  list[
+    CYCLE ? exec.scenario.iterationInTest % list.length : Math.floor(Math.random() * list.length)
+  ];
 const DESTINATIONS = [
   'manila',
   'cebu',
@@ -74,51 +102,116 @@ const uuid = () =>
   });
 const token32 = () => encoding.b64encode(uuid() + uuid(), 'rawurl').slice(0, 43);
 
+// Status distribution and effective compression of every checked response.
+const statusClass = {
+  2: new Counter('velasia_status_2xx'),
+  3: new Counter('velasia_status_3xx'),
+  4: new Counter('velasia_status_4xx'),
+  5: new Counter('velasia_status_5xx'),
+};
+const status429 = new Counter('velasia_status_429');
+const statusOther = new Counter('velasia_status_other');
+const compressed = new Rate('velasia_compressed');
+const TEXTUAL = /html|json|javascript|css|x-component|text\//;
+
 function ok(response, name, predicate = () => true) {
   const passed = check(response, { [name]: (r) => predicate(r) });
   correct.add(passed);
+  (statusClass[Math.floor(response.status / 100)] ?? statusOther).add(1);
+  if (response.status === 429) status429.add(1);
+  // Text answers of at least 1 KiB: did they come back encoded? (A runtime may leave smaller
+  // answers as they are, so those are not counted either way.)
+  if (
+    response.status === 200 &&
+    TEXTUAL.test(response.headers['Content-Type'] ?? '') &&
+    (response.body?.length ?? 0) >= 1024
+  ) {
+    compressed.add(/gzip|br|deflate|zstd/.test(response.headers['Content-Encoding'] ?? ''));
+  }
   return passed;
 }
+
+/** Page requests carry `accept-encoding` when ACCEPT_ENCODING is set. */
+const ENCODING = __ENV.ACCEPT_ENCODING;
+const get = (url, params = {}) =>
+  http.get(
+    url,
+    ENCODING
+      ? { ...params, headers: { 'accept-encoding': ENCODING, ...(params.headers ?? {}) } }
+      : params,
+  );
 const html = (r) => r.status === 200 && r.body.includes('</html>');
 const searchUrl = (trip) =>
   `/flights?trip=one-way&from=${trip.origin}&to=${trip.destination}&depart=${trip.date}&adults=1&cabin=economy`;
 
+// RSC payloads for client-side navigation: `RSC: 1` (as in tests/parity) plus the `_rsc`
+// cache-busting key the server asks for (learned in setup()), so no redirect hop is measured.
+const RSC_PATHS = ['/', '/destinations', ...DESTINATIONS.map((slug) => `/destinations/${slug}`)];
+const staticGzip = new Rate('velasia_static_gzip');
+
 // --- Page and route workloads -------------------------------------------------------------
 const pages = {
+  // Build assets referenced by two prerendered pages (found in setup(), with their `?dpl=`
+  // deployment-ID query), asked for with gzip. Correctness is the status; whether JS/CSS came
+  // back gzip-encoded is its own rate, because a runtime may leave very small files as they are.
+  'static-assets': (data) => {
+    const url = pick(data.assets);
+    const r = get(`${WEB}${url}`, {
+      headers: { 'accept-encoding': 'gzip' },
+      redirects: 0,
+      tags: { name: 'static-asset' },
+    });
+    ok(r, 'static asset', (res) => res.status === 200 && res.body.length > 0);
+    if (/\.(js|css)(\?|$)/.test(url)) {
+      staticGzip.add(/gzip/.test(r.headers['Content-Encoding'] ?? ''));
+    }
+  },
+  rsc: (data) => {
+    const path = pick(RSC_PATHS);
+    ok(
+      get(`${WEB}${path}?${data.rscQuery}`, {
+        headers: { RSC: '1' },
+        redirects: 0,
+        tags: { name: 'rsc' },
+      }),
+      'rsc payload',
+      (r) => r.status === 200 && (r.headers['Content-Type'] ?? '').includes('text/x-component'),
+    );
+  },
   home: () =>
     ok(
-      http.get(`${WEB}/`, { tags: { name: 'home' } }),
+      get(`${WEB}/`, { tags: { name: 'home' } }),
       'home',
       (r) => html(r) && r.body.includes('Velasia'),
     ),
   destination: () =>
     ok(
-      http.get(`${WEB}/destinations/${pick(DESTINATIONS)}`, { tags: { name: 'destination' } }),
+      get(`${WEB}/destinations/${pick(DESTINATIONS)}`, { tags: { name: 'destination' } }),
       'destination',
       html,
     ),
   cached: () => {
     ok(
-      http.get(`${WEB}/destinations`, { tags: { name: 'destinations-index' } }),
+      get(`${WEB}/destinations`, { tags: { name: 'destinations-index' } }),
       'destinations index',
       html,
     );
     ok(
-      http.get(`${WEB}/api/aircraft`, { tags: { name: 'api-aircraft' } }),
+      get(`${WEB}/api/aircraft`, { tags: { name: 'api-aircraft' } }),
       'aircraft',
       (r) => r.status === 200 && r.json('data.0') !== undefined,
     );
   },
   'flight-search': () =>
     ok(
-      http.get(`${WEB}${searchUrl(pick(fixtures.itineraries))}`, { tags: { name: 'flights-ssr' } }),
+      get(`${WEB}${searchUrl(pick(fixtures.itineraries))}`, { tags: { name: 'flights-ssr' } }),
       'search page',
       html,
     ),
   'route-handler': () => {
     const trip = pick(fixtures.itineraries);
     ok(
-      http.get(
+      get(
         `${WEB}/api/flights?from=${trip.origin}&to=${trip.destination}&departureDate=${trip.date}&adults=1`,
         { tags: { name: 'api-flights' } },
       ),
@@ -129,7 +222,7 @@ const pages = {
   offers: () => {
     const trip = pick(fixtures.itineraries);
     ok(
-      http.get(`${WEB}/api/offers?itineraryId=${trip.itineraryId}&adults=1&children=0&infants=0`, {
+      get(`${WEB}/api/offers?itineraryId=${trip.itineraryId}&adults=1&children=0&infants=0`, {
         tags: { name: 'api-offers' },
       }),
       'offers',
@@ -139,7 +232,7 @@ const pages = {
   comparison: () => {
     const trip = pick(fixtures.itineraries);
     ok(
-      http.get(`${WEB}${searchUrl(trip)}&fares=${trip.itineraryId}`, {
+      get(`${WEB}${searchUrl(trip)}&fares=${trip.itineraryId}`, {
         tags: { name: 'fares-ssr' },
       }),
       'fare comparison page',
@@ -159,7 +252,7 @@ const pages = {
   'manage-booking': () => {
     const booking = pick(fixtures.bookings);
     ok(
-      http.get(`${WEB}/manage-booking/${booking.orderId}`, {
+      get(`${WEB}/manage-booking/${booking.orderId}`, {
         cookies: { 'velasia-guest': booking.guest },
         tags: { name: 'manage-ssr' },
       }),
@@ -170,7 +263,7 @@ const pages = {
   'my-trips': () => {
     const account = pick(fixtures.accounts);
     ok(
-      http.get(`${WEB}/account/trips`, {
+      get(`${WEB}/account/trips`, {
         cookies: { 'velasia-account': account.token },
         tags: { name: 'trips-ssr' },
       }),
@@ -351,8 +444,36 @@ export function mixed() {
 
 const ALL = { ...pages, ...api, mixed };
 
-export default function () {
+// Setup for the two scenarios that depend on the build being measured.
+export function setup() {
+  if (SCENARIO === 'static-assets') {
+    // This build's asset URLs (build id in the path, deployment id in `?dpl=`).
+    const assets = new Set();
+    for (const path of ['/', '/destinations']) {
+      const r = http.get(`${WEB}${path}`, { tags: { name: 'setup' } });
+      for (const m of r.body.matchAll(/(?:src|href)="(\/_next\/static\/[^"#]+)"/g)) {
+        assets.add(m[1].replaceAll('&amp;', '&'));
+      }
+    }
+    if (assets.size === 0)
+      exec.test.abort('static-assets: no /_next/static URLs in / or /destinations');
+    return { assets: [...assets].sort() };
+  }
+  if (SCENARIO === 'rsc') {
+    // Next.js redirects an RSC request without the `_rsc` key to the URL that has it; take the
+    // key from that redirect instead of re-implementing how it is derived.
+    const r = http.get(`${WEB}/`, { headers: { RSC: '1' }, redirects: 0, tags: { name: 'setup' } });
+    const location = r.headers.Location ?? '';
+    const query = r.status === 200 ? '_rsc' : location.slice(location.indexOf('?') + 1);
+    if (!query.startsWith('_rsc'))
+      exec.test.abort(`rsc: unexpected answer ${r.status} ${location}`);
+    return { rscQuery: query };
+  }
+  return {};
+}
+
+export default function (data) {
   const run = ALL[SCENARIO];
   if (!run) exec.test.abort(`unknown SCENARIO ${SCENARIO}`);
-  run();
+  run(data);
 }
