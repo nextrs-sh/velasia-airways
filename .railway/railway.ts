@@ -1,163 +1,199 @@
 /*
- * Velasia Airways on Railway: Infrastructure as Code (Milestone 9).
+ * Velasia Airways on Railway: Infrastructure as Code, reconciled with production (M9.2).
  *
- * One project, three services built from this repository's production Dockerfiles, with the
- * repository root as the build context (the Dockerfiles copy workspace packages from it):
+ * This file describes the production environment AS IT RUNS TODAY, verified on 2026-11-26 with
+ * read-only commands (`railway status --json`, `railway config pull --json`, `railway variables
+ * --json`, `railway metrics --all --json`). `railway config plan` on this file is a complete
+ * no-op ("already up to date"). It is NOT the original Milestone 9 design (Singapore,
+ * `deploy/railway`, Docker-built API on a volume, pinned clock, service tokens): those are
+ * pending changes, each with its own reviewed rollout (docs/deployment/RAILWAY-IAC-RECONCILIATION.md).
  *
- *   velasia-node    Dockerfile.node          official Next.js server   public (generated domain)
- *   velasia-nextrs  Dockerfile.nextrs        NextRS (no Node.js)       public (generated domain)
- *   velasia-api     docker/Dockerfile.api    Fastify + TalaDB          private network only
+ *   @velasia/web          Dockerfile.node     Next.js server (Node.js)   public generated domain
+ *   @velasia/web-nextrs   Dockerfile.nextrs   NextRS (no Node.js)        public generated domain
+ *   @velasia/retailing-api  Railpack (pnpm)   Fastify + TalaDB           private network only
  *
- * The browser talks only to the storefronts (`/api/*` route handlers, Server Actions); both
- * storefronts call the same API at http://velasia-api.railway.internal:4010 with the same
- * service token.
+ * Identity: Railway matches a service in this file to the existing service OF THE SAME NAME.
+ * A different name is a different resource: renaming a service here plans "create" for the new
+ * name and "delete" for the old one. In this whole-project file, an omitted service or variable
+ * is DELETED by an apply. Never rename or drop anything here.
  *
- *   pnpm railway:check     typecheck + offline checks of this file (no Railway account needed)
- *   railway config plan    read-only diff against the linked environment (needs `railway login`)
+ *   pnpm railway:check                       offline checks (no Railway account; also in CI)
+ *   pnpm railway:plan-gate                   read-only plan + destructive-change gate (needs login)
+ *   railway config plan --file .railway/railway.ts   the raw read-only plan
  *
- * Milestone 9 is preparation only: never `railway config apply` without the owner's go-ahead.
- * In whole-project mode an apply DELETES any service of the environment that is missing here.
+ * Never `railway config apply` from this milestone. An apply needs the owner's approval of the
+ * exact plan (docs/deployment/RAILWAY-CHANGE-SAFETY.md).
  *
- * What this file does not (and cannot) set; see docs/deployment/railway.md:
- *   - Railway-generated *.up.railway.app domains ("not included in .railway/railway.ts"): one per
- *     storefront, target port 8080, created with `railway domain` or the dashboard. None for the API.
- *   - Shared variables RETAILING_API_SERVICE_TOKEN and METRICS_TOKEN: only referenced here
- *     (ctx.shared), created in the dashboard with values generated outside the repository.
- *   - GitHub autodeploy: no IaC field. Disable it per service in the dashboard; deployments are
- *     started deliberately from DEPLOY_BRANCH.
- *   - Volume backups, usage limits, sealing.
+ * Variables are managed (the CLI default): every variable live on these three services is
+ * declared here with its live value, so a dashboard edit shows up as drift in the plan, and an
+ * omitted variable shows up as a destructive `variable.delete`. None of them is a secret today
+ * (no token is configured in production). A future secret is never written here as a value:
+ * it is `ctx.shared.NAME` (an existing shared variable) or `preserve()` (keep Railway's value).
  *
- * Settings marked [SDK] exist in the `railway` package's types (3.17.0) but not in the IaC
- * documentation; the first `railway config plan` must show them as intended, or they are set in
- * the dashboard instead (docs/deployment/railway.md, "IaC coverage").
- *
- * No secret value is written here, and none may be: secrets are `ctx.shared.*` references.
+ * What this file does not set:
+ *   - Generated *.up.railway.app domains (not represented in IaC; they exist on both storefronts,
+ *     target port 8080, and none on the API).
+ *   - CPU/memory: no `limitOverride` on any service. All three run with the plan's default
+ *     limit (2 vCPU / 1 GB on the current Trial plan, read from `railway metrics`), so both
+ *     storefronts are equal by construction. An explicit override plans as a change.
+ *   - GitHub autodeploy and its watch patterns' effects, volume backups, usage limits.
  */
-import { defineRailway, github, project, service, volume } from 'railway/iac';
+import { defineRailway, github, project, service } from 'railway/iac';
 
-/** The repository every service builds from. */
-const REPO = 'nextrs-sh/velasia-airways';
+export const PROJECT = 'velasia-airways';
+export const REPO = 'nextrs-sh/velasia-airways';
+/** All three services deploy from `main` (GitHub autodeploy is on; see the drift report). */
+export const DEPLOY_BRANCH = 'main';
+/** US East (Virginia). All three services; there is no volume. */
+export const REGION = 'iad';
+
+/** Existing Railway service names: their identity. Never rename. */
+export const SERVICES = {
+  api: '@velasia/retailing-api',
+  node: '@velasia/web',
+  nextrs: '@velasia/web-nextrs',
+} as const;
+
+/** The API's private host, from its private network endpoint `velasiaretailing-api`. */
+const API_PRIVATE_URL = 'http://velasiaretailing-api.railway.internal:4010';
+
+/*
+ * NextRS outbound address policy (NEXTRS_NET_ALLOW_ADDR). NextRS refuses the API lookup if ANY
+ * address in the DNS answer is non-public and outside these ranges; the environment is
+ * dual-stack, so velasiaretailing-api.railway.internal has an A and an AAAA record.
+ *
+ * LIVE: what production has today (set in the dashboard on 2026-11-25). 10.0.0.0/8 is broader
+ * than needed.
+ *
+ * INTENDED: the narrowed policy. Railway documents no private IPv4 range; 10.128.0.0/9 is an
+ * observation of THIS environment (every API address seen so far, below), not a Railway
+ * guarantee, and it may not hold for other projects. The IPv6 range is Railway's private
+ * network (all observed AAAA answers are in fd12:382f:2f26:1::/64).
+ *
+ * The intended value is not applied by this file: `.railway/proposals/nextrs-allowlist.ts`
+ * plans it as exactly one variable change, for a separate reviewed rollout.
+ */
+export const NEXTRS_NET_ALLOW_ADDR_LIVE = 'fd12::/16,10.0.0.0/8';
+export const NEXTRS_NET_ALLOW_ADDR_INTENDED = 'fd12::/16,10.128.0.0/9';
+
 /**
- * The branch all three services deploy from. Move it deliberately (fast-forward to the commit
- * under test) so both storefronts always run the same source revision; `main` merges do not
- * redeploy anything.
+ * Addresses `velasiaretailing-api.railway.internal` resolved to (NextRS startup logs and
+ * `railway logs --dns`). The API's IPv4 changes on every API redeploy.
  */
-const DEPLOY_BRANCH = 'deploy/railway';
-/**
- * One region for all three services and the volume (Southeast Asia, Singapore). Full region ID
- * from https://docs.railway.com/deployments/regions (the IaC reference shows short IDs; check
- * the first plan). Region choice needs the Trial plan or above.
- */
-const REGION = 'asia-southeast1-eqsg3a';
-/**
- * Pinned "today" (YYYY-MM-DD, Asia/Manila) for the API and both storefronts, at build and run
- * time: deterministic inventory, prices and prerendered pages for parity runs and benchmarks.
- * Set to '' for a live-calendar demo (then on every service at once).
- */
-const VELASIA_TODAY = '2026-12-01';
-/** The API's deterministic demand seed (the application default, stated explicitly). */
-const INVENTORY_SEED = 'aeronova';
+export const OBSERVED_API_ADDRESSES = [
+  { address: '10.228.244.185', seen: '2026-11-25' },
+  { address: '10.146.207.192', seen: '2026-11-25' },
+  { address: '10.236.48.211', seen: '2026-11-26' },
+  { address: 'fd12:382f:2f26:1:a000:1f:5092:cfc0', seen: '2026-11-25' },
+  { address: 'fd12:382f:2f26:1:3000:179:bb6c:30d3', seen: '2026-11-26' },
+] as const;
 
-/**
- * NextRS outbound policy. Railway's private network is documented as fd12::/16 (IPv6). Projects
- * created after 2025-10-16 are dual-stack, so velasia-api.railway.internal also has an IPv4
- * (A) record, and NextRS refuses the whole DNS answer if ANY address is outside these ranges.
- * Railway does not document its private IPv4 range: it is read from the running environment
- * (docs/deployment/railway.md, "Private IPv4 range") and entered here. Never 10.0.0.0/8 or wider.
- */
-const RAILWAY_PRIVATE_IPV6 = 'fd12::/16';
-const RAILWAY_PRIVATE_IPV4: string = '';
+export interface ProductionOptions {
+  /** NextRS's NEXTRS_NET_ALLOW_ADDR. */
+  nextrsNetAllowAddr: string;
+}
 
-/** Identical for both storefronts: a comparison needs equal CPU and memory. [SDK] */
-const STOREFRONT_LIMITS = { containers: { cpu: 1, memoryBytes: 1024 * 1024 * 1024 } };
-const API_LIMITS = { containers: { cpu: 1, memoryBytes: 768 * 1024 * 1024 } };
-/** Trial accounts allow at most 10 restarts on failure ("Always" needs a paid plan). [SDK] */
-const RESTART = { restartPolicyType: 'ON_FAILURE', restartPolicyMaxRetries: 10 } as const;
-/** SIGTERM-to-SIGKILL time; Railway's default is 0 (killed at once). Above the apps' 10 s. */
-const DRAINING_SECONDS = '15';
+/** Production today. */
+export const CURRENT: ProductionOptions = { nextrsNetAllowAddr: NEXTRS_NET_ALLOW_ADDR_LIVE };
 
-export default defineRailway((ctx) => {
-  const apiData = volume('velasia-api-data', { region: REGION, sizeMB: 500 });
+export function production(options: ProductionOptions = CURRENT) {
+  const source = github(REPO, { branch: DEPLOY_BRANCH, checkSuites: false });
 
-  const api = service('velasia-api', {
-    source: github(REPO, { branch: DEPLOY_BRANCH }),
-    build: { builder: 'DOCKERFILE', dockerfilePath: 'docker/Dockerfile.api' }, // [SDK]
-    // Exactly one API process owns the TalaDB file: one replica (Railway also refuses replicas
-    // with a volume, and never mounts one volume into two deployments at once).
+  const api = service(SERVICES.api, {
+    source,
+    // Railpack (Nixpacks' successor), NOT docker/Dockerfile.api: docker/api/start.sh (volume
+    // guard, uid drop) does not run, and the API runs TypeScript through tsx.
+    build: {
+      builder: 'RAILPACK',
+      buildEnvironment: 'V3',
+      buildCommand: 'pnpm --filter @velasia/retailing-api build',
+      watchPatterns: ['/apps/retailing-api/**'],
+    },
+    start: 'pnpm --filter @velasia/retailing-api start',
     replicas: { [REGION]: 1 },
-    healthcheck: '/health/ready',
-    healthcheckTimeout: 120,
-    deploy: { ...RESTART, sleepApplication: false, limitOverride: API_LIMITS }, // [SDK]
-    volumeMounts: { '/data': apiData },
+    networking: { privateNetworkEndpoint: 'velasiaretailing-api' },
+    // No volume, no deploy health check, no NODE_ENV, no VELASIA_TODAY, no tokens: all live
+    // facts, all pending changes (see the drift report). The database is on the container's
+    // ephemeral disk.
     env: {
-      RAILWAY_DOCKERFILE_PATH: 'docker/Dockerfile.api',
-      // Railway mounts volumes root-owned. The entrypoint (docker/api/start.sh) runs as root
-      // only to give /data to uid 1000, then drops privileges; the API never runs as root.
-      RAILWAY_RUN_UID: '0',
-      RAILWAY_DEPLOYMENT_DRAINING_SECONDS: DRAINING_SECONDS,
-      NODE_ENV: 'production',
-      // `::` accepts IPv6 and IPv4 on the private network (legacy environments are IPv6-only).
+      ACCOUNT_REGISTRATION: 'disabled',
+      CHECKOUT_HOLD_MINUTES: '10',
+      CHECKOUT_MAX_PAYMENT_ATTEMPTS: '5',
+      INVENTORY_HORIZON_DAYS: '120',
+      INVENTORY_SEED: 'aeronova',
+      LOG_LEVEL: 'info',
+      OFFER_VALIDITY_MINUTES: '15',
+      ORDER_SWEEP_INTERVAL_MS: '30000',
+      PAYMENT_OUTCOME_CONTROLS: 'disabled',
+      PAYMENT_PENDING_RESOLVE_MS: '5000',
+      PAYMENT_PROVIDER_DELAY_MS: '350',
+      PAYMENT_PROVIDER_TIMEOUT_MS: '2500',
       RETAILING_API_HOST: '::',
       RETAILING_API_PORT: '4010',
-      // Railway's deploy health check probes $PORT.
-      PORT: '4010',
-      TALADB_PATH: '/data/velasia.db',
-      // Refuse to start unless /data is the mounted volume (never ephemeral storage).
-      TALADB_REQUIRE_VOLUME: 'enabled',
-      INVENTORY_SEED,
-      VELASIA_TODAY,
-      ACCOUNT_REGISTRATION: 'disabled',
-      PAYMENT_OUTCOME_CONTROLS: 'disabled',
+      RETAILING_API_TIMEOUT_MS: '5000',
+      SERVICING_CLAIM_MINUTES: '10',
       SHUTDOWN_TIMEOUT_MS: '10000',
-      LOG_LEVEL: 'info',
-      RETAILING_API_SERVICE_TOKEN: ctx.shared.RETAILING_API_SERVICE_TOKEN,
-      METRICS_TOKEN: ctx.shared.METRICS_TOKEN,
+      SLOW_REQUEST_MS: '1000',
+      // Inert under Railpack: only docker/api/start.sh reads TALADB_REQUIRE_VOLUME, so nothing
+      // stops the API from writing /data/velasia.db to ephemeral storage today.
+      TALADB_PATH: '/data/velasia.db',
+      TALADB_REQUIRE_VOLUME: 'enabled',
+      VELASIA_POST_RATE_LIMIT_BURST: '30',
+      VELASIA_POST_RATE_LIMIT_RPS: '10',
+      VELASIA_RATE_LIMIT_BURST: '100',
+      VELASIA_RATE_LIMIT_RPS: '50',
+      // Stale values copied from the local Compose setup; the API does not use them. Removal is
+      // a pending cleanup (a `variable.delete`, so it needs its own approved plan).
+      RETAILING_API_URL: 'http://127.0.0.1:4010',
+      SITE_URL: 'http://localhost:8080',
+      VELASIA_HTTP_BIND: '127.0.0.1',
+      VELASIA_HTTP_PORT: '8080',
+      VELASIA_TAG: 'local',
     },
   });
 
-  /** Runtime and build variables both storefronts share (the build reads SITE_URL, VELASIA_TODAY). */
-  const storefrontEnv = {
-    RAILWAY_DEPLOYMENT_DRAINING_SECONDS: DRAINING_SECONDS,
-    NODE_ENV: 'production',
-    PORT: '8080',
-    // Each storefront's own generated domain. It must exist before the first build (two-stage
-    // bootstrap): SITE_URL is baked into sitemap/robots/metadata at build time.
-    SITE_URL: 'https://${{RAILWAY_PUBLIC_DOMAIN}}',
-    // The private API, never a public URL; resolved by Railway at runtime only.
-    RETAILING_API_URL: 'http://${{velasia-api.RAILWAY_PRIVATE_DOMAIN}}:${{velasia-api.PORT}}',
-    RETAILING_API_TIMEOUT_MS: '5000',
-    VELASIA_TODAY,
-    RETAILING_API_SERVICE_TOKEN: ctx.shared.RETAILING_API_SERVICE_TOKEN,
-    METRICS_TOKEN: ctx.shared.METRICS_TOKEN,
-  };
+  /** Same for both storefronts: health check, replica, region. */
   const storefront = {
-    source: github(REPO, { branch: DEPLOY_BRANCH }),
-    replicas: { [REGION]: 1 },
-    // Ready = the server answers AND reaches the API (for NextRS: through its network policy).
+    source,
     healthcheck: '/api/internal/health/ready',
-    healthcheckTimeout: 120,
-    deploy: { ...RESTART, sleepApplication: false, limitOverride: STOREFRONT_LIMITS }, // [SDK]
-    cdn: { enabled: false },
+    healthcheckTimeout: 60,
+    replicas: { [REGION]: 1 },
   };
 
-  const node = service('velasia-node', {
+  const node = service(SERVICES.node, {
     ...storefront,
-    build: { builder: 'DOCKERFILE', dockerfilePath: 'Dockerfile.node' }, // [SDK]
-    env: { ...storefrontEnv, RAILWAY_DOCKERFILE_PATH: 'Dockerfile.node' },
-  });
-
-  const nextrs = service('velasia-nextrs', {
-    ...storefront,
-    build: { builder: 'DOCKERFILE', dockerfilePath: 'Dockerfile.nextrs' }, // [SDK]
+    build: {
+      builder: 'DOCKERFILE',
+      buildEnvironment: 'V3',
+      dockerfilePath: 'Dockerfile.node',
+      buildCommand: '',
+      // Differs from NextRS (none): a change outside apps/web/ redeploys NextRS but not Node.js.
+      watchPatterns: ['/apps/web/**'],
+    },
+    start: '',
+    networking: { privateNetworkEndpoint: 'velasiaweb' },
     env: {
-      ...storefrontEnv,
-      RAILWAY_DOCKERFILE_PATH: 'Dockerfile.nextrs',
-      // One V8 isolate: one JavaScript thread, like the single Node.js process.
-      NEXTRS_ISOLATES: '1',
-      NEXTRS_SHUTDOWN_GRACE: '10',
-      NEXTRS_NET_ALLOW_ADDR: [RAILWAY_PRIVATE_IPV6, RAILWAY_PRIVATE_IPV4].filter(Boolean).join(','),
+      RAILWAY_DOCKERFILE_PATH: 'Dockerfile.node',
+      RETAILING_API_URL: API_PRIVATE_URL,
+      SITE_URL: 'https://velasiaweb-production.up.railway.app',
+      // Inert: read only by the image build's throwaway API, and Dockerfile.node sets its own.
+      RETAILING_API_START_TIMEOUT_MS: '60000',
     },
   });
 
-  return project('velasia-airways', { resources: [api, apiData, node, nextrs] });
-});
+  const nextrs = service(SERVICES.nextrs, {
+    ...storefront,
+    build: { builder: 'DOCKERFILE', buildEnvironment: 'V3', dockerfilePath: 'Dockerfile.nextrs' },
+    networking: { privateNetworkEndpoint: 'velasiaweb-nextrs' },
+    env: {
+      RAILWAY_DOCKERFILE_PATH: 'Dockerfile.nextrs',
+      RETAILING_API_URL: API_PRIVATE_URL,
+      SITE_URL: 'https://velasiaweb-nextrs-production.up.railway.app',
+      NEXTRS_NET_ALLOW_ADDR: options.nextrsNetAllowAddr,
+    },
+  });
+
+  return project(PROJECT, { resources: [api, node, nextrs] });
+}
+
+export default defineRailway(() => production(CURRENT));
