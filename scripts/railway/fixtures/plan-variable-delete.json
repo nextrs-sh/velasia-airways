@@ -1,0 +1,90 @@
+{
+  "ok": true,
+  "command": "plan",
+  "file": ".railway/railway.ts",
+  "currentEnvironment": {
+    "projectId": "<project-id>",
+    "projectName": "velasia-airways",
+    "environmentId": "<environment-id>",
+    "environmentName": "production",
+    "configEtag": "<etag>",
+    "pr": null
+  },
+  "changeSet": {
+    "changes": [
+      {
+        "summary": "Delete variable @velasia/web.RETAILING_API_START_TIMEOUT_MS",
+        "severity": "destructive",
+        "kind": "variable.delete",
+        "details": null
+      }
+    ]
+  },
+  "diff": "~ Delete variable @velasia/web.RETAILING_API_START_TIMEOUT_MS",
+  "diagnostics": [],
+  "currentGraph": {
+    "project": {
+      "name": "velasia-airways"
+    },
+    "resources": [
+      {
+        "address": "service.@velasia/retailing-api",
+        "type": "service",
+        "name": "@velasia/retailing-api"
+      },
+      {
+        "address": "service.@velasia/web",
+        "type": "service",
+        "name": "@velasia/web",
+        "networking": {
+          "serviceDomains": {
+            "velasiaweb-production.up.railway.app": {}
+          }
+        }
+      },
+      {
+        "address": "service.@velasia/web-nextrs",
+        "type": "service",
+        "name": "@velasia/web-nextrs",
+        "networking": {
+          "serviceDomains": {
+            "velasiaweb-nextrs-production.up.railway.app": {}
+          }
+        }
+      }
+    ]
+  },
+  "desiredGraph": {
+    "project": {
+      "name": "velasia-airways"
+    },
+    "resources": [
+      {
+        "address": "service.@velasia/retailing-api",
+        "type": "service",
+        "name": "@velasia/retailing-api"
+      },
+      {
+        "address": "service.@velasia/web",
+        "type": "service",
+        "name": "@velasia/web"
+      },
+      {
+        "address": "service.@velasia/web-nextrs",
+        "type": "service",
+        "name": "@velasia/web-nextrs"
+      }
+    ]
+  },
+  "stagedPatch": null,
+  "applyResult": null,
+  "deploymentId": null,
+  "stagedPatchId": null,
+  "variablePolicy": {
+    "managed": true,
+    "ignore": [],
+    "default": false,
+    "ignoredCount": 0,
+    "byPattern": {}
+  }
+}

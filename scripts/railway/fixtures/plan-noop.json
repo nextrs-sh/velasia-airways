@@ -1,0 +1,83 @@
+{
+  "ok": true,
+  "command": "plan",
+  "file": ".railway/railway.ts",
+  "currentEnvironment": {
+    "projectId": "<project-id>",
+    "projectName": "velasia-airways",
+    "environmentId": "<environment-id>",
+    "environmentName": "production",
+    "configEtag": "<etag>",
+    "pr": null
+  },
+  "changeSet": {
+    "changes": []
+  },
+  "diff": "No changes.",
+  "diagnostics": [],
+  "currentGraph": {
+    "project": {
+      "name": "velasia-airways"
+    },
+    "resources": [
+      {
+        "address": "service.@velasia/retailing-api",
+        "type": "service",
+        "name": "@velasia/retailing-api"
+      },
+      {
+        "address": "service.@velasia/web",
+        "type": "service",
+        "name": "@velasia/web",
+        "networking": {
+          "serviceDomains": {
+            "velasiaweb-production.up.railway.app": {}
+          }
+        }
+      },
+      {
+        "address": "service.@velasia/web-nextrs",
+        "type": "service",
+        "name": "@velasia/web-nextrs",
+        "networking": {
+          "serviceDomains": {
+            "velasiaweb-nextrs-production.up.railway.app": {}
+          }
+        }
+      }
+    ]
+  },
+  "desiredGraph": {
+    "project": {
+      "name": "velasia-airways"
+    },
+    "resources": [
+      {
+        "address": "service.@velasia/retailing-api",
+        "type": "service",
+        "name": "@velasia/retailing-api"
+      },
+      {
+        "address": "service.@velasia/web",
+        "type": "service",
+        "name": "@velasia/web"
+      },
+      {
+        "address": "service.@velasia/web-nextrs",
+        "type": "service",
+        "name": "@velasia/web-nextrs"
+      }
+    ]
+  },
+  "stagedPatch": null,
+  "applyResult": null,
+  "deploymentId": null,
+  "stagedPatchId": null,
+  "variablePolicy": {
+    "managed": true,
+    "ignore": [],
+    "default": true,
+    "ignoredCount": 0,
+    "byPattern": {}
+  }
+}
