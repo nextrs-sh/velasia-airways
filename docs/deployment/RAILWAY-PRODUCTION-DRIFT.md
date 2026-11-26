@@ -44,6 +44,8 @@ update. A matching name is the only adoption mechanism, so the reconciled file u
 
 Project `velasia-airways`, environment `production`, Trial plan, no buckets, **no volumes**.
 
+Active deployments as verified before the PR #15 merge. That merge's autodeploy then rebuilt all three from `a66e74c` (03:59–04:01 UTC). The configuration did not change, and the baseline plan was still a no-op afterwards.
+
 ## Field by field
 
 Classes: **P** correct production setting (now in IaC) · **O** outdated IaC assumption ·
@@ -94,11 +96,12 @@ Sanitized gate output: [RAILWAY-IAC-RECONCILIATION.md](RAILWAY-IAC-RECONCILIATIO
 
 ## Private network observations
 
-| When (UTC)                                 | API IPv4         | API IPv6                              | Source                  |
-| ------------------------------------------ | ---------------- | ------------------------------------- | ----------------------- |
-| 2026-11-25 (before the 15:17 API redeploy) | `10.228.244.185` | (not recorded)                        | NextRS startup log      |
-| 2026-11-25 17:43                           | `10.146.207.192` | `fd12:382f:2f26:1:a000:1f:5092:cfc0`  | NextRS startup log, DNS |
-| 2026-11-26 03:01                           | `10.236.48.211`  | `fd12:382f:2f26:1:3000:179:bb6c:30d3` | `railway logs --dns`    |
+| When (UTC)                                        | API IPv4         | API IPv6                              | Source                  |
+| ------------------------------------------------- | ---------------- | ------------------------------------- | ----------------------- |
+| 2026-11-25 (before the 15:17 API redeploy)        | `10.228.244.185` | (not recorded)                        | NextRS startup log      |
+| 2026-11-25 17:43                                  | `10.146.207.192` | `fd12:382f:2f26:1:a000:1f:5092:cfc0`  | NextRS startup log, DNS |
+| 2026-11-26 03:01                                  | `10.236.48.211`  | `fd12:382f:2f26:1:3000:179:bb6c:30d3` | `railway logs --dns`    |
+| 2026-11-26 04:01 (after the #15 merge autodeploy) | `10.137.93.22`   | `fd12:382f:2f26:1:3000:1b6:5a89:5d16` | `railway logs --dns`    |
 
 Every IPv4 address changed /16 on an API redeploy; all are inside `10.128.0.0/9`. Every IPv6
 address is inside `fd12:382f:2f26:1::/64`. Railway documents neither range. Both storefronts
@@ -107,7 +110,7 @@ were ready (`/api/internal/health/ready` 200) at 2026-11-26 03:0x UTC.
 ## Risks found
 
 1. **Data loss on every API redeploy.** No volume, so TalaDB lives on ephemeral disk. The API
-   was redeployed at 2026-11-26 02:47 UTC (after the first benchmark series), and that started
+   was redeployed at 2026-11-26 02:47 UTC (after the first benchmark series) and again at 03:59 UTC (the autodeploy of this milestone's own merge, PR #15); each started
    from an empty database. A merge that touches `apps/retailing-api/` redeploys it again
    (autodeploy).
 2. **Autodeploy from `main` without CI checks** (`checkSuites: false`), with different watch

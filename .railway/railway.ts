@@ -84,8 +84,10 @@ export const OBSERVED_API_ADDRESSES = [
   { address: '10.228.244.185', seen: '2026-11-25' },
   { address: '10.146.207.192', seen: '2026-11-25' },
   { address: '10.236.48.211', seen: '2026-11-26' },
+  { address: '10.137.93.22', seen: '2026-11-26' },
   { address: 'fd12:382f:2f26:1:a000:1f:5092:cfc0', seen: '2026-11-25' },
   { address: 'fd12:382f:2f26:1:3000:179:bb6c:30d3', seen: '2026-11-26' },
+  { address: 'fd12:382f:2f26:1:3000:1b6:5a89:5d16', seen: '2026-11-26' },
 ] as const;
 
 export interface ProductionOptions {

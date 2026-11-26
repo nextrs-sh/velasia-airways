@@ -322,8 +322,8 @@ inside `10.0.0.0/8` and narrower than it (prefix 9 or longer), IPv6 ranges insid
 prefix 16 or longer, both families present, no host bits, and every observed API address covered.
 
 The original M9 rule (nothing wider than /16) was wrong for Railway: the API's private IPv4 is
-not stable inside a /16. Three API deployments got `10.228.244.185`, `10.146.207.192` and
-`10.236.48.211`, three different /16 blocks, all inside **`10.128.0.0/9`**. A /16 allowlist broke
+not stable inside a /16. Four API deployments got `10.228.244.185`, `10.146.207.192`,
+`10.236.48.211` and `10.137.93.22`, four different /16 blocks, all inside **`10.128.0.0/9`**. A /16 allowlist broke
 NextRS on the next API redeploy (2026-11-25 15:19 UTC). The owner then set `10.0.0.0/8`, which
 works but is broader than needed. The intended policy is `fd12::/16,10.128.0.0/9`. It is an
 **observation of this environment, not a Railway guarantee**, and it is not applied yet
