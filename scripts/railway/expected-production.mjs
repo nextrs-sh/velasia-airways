@@ -199,6 +199,9 @@ export const APPLIED_STAGES = [
   // 2026-11-26 07:02 UTC (pinned plan, 9 changes, 0 destructive); persistence verified across a
   // restart and a redeploy. Proposal deleted; its expected changes live on in m9-3-stages.test.mjs.
   'apiPersistence',
+  // 2026-11-26 07:37 UTC (pinned plan, 6 resource.update, 0 destructive). Railway redeployed all
+  // three services from the settings change (same images); parity and persistence verified.
+  'deployPolicy',
 ];
 
 /** What production must look like with these stages applied (a fresh copy). */

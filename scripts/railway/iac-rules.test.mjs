@@ -47,7 +47,8 @@ test('the reconciled file passes as current production', () => {
   const { failures, warnings } = run(base);
   assert.deepEqual(failures, []);
   assert.ok(warnings.some((w) => /live allowlist .* broader/.test(w)));
-  assert.ok(warnings.some((w) => /watch patterns differ/.test(w)));
+  // Stage 5 (applied): both storefronts watch the same paths, so no drift warning.
+  assert.ok(!warnings.some((w) => /watch patterns differ/.test(w)));
 });
 
 test('it names exactly the existing services, from main, in iad', () => {

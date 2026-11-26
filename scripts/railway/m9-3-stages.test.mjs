@@ -5,8 +5,9 @@
  * All three were recorded BEFORE stage 1 was applied, so each is judged against the stages that
  * were applied when it was recorded (none), plus its own.
  *
- * Stage 1 (apiPersistence) is applied (2026-11-26) and folded into .railway/railway.ts; its
- * proposal is deleted. The plan it applied stays here as STAGE1_CHANGES + its fixture.
+ * Stages 1 (apiPersistence) and 5 (deployPolicy) are applied (2026-11-26) and folded into
+ * .railway/railway.ts; their proposals are deleted. The plans they applied stay here as
+ * STAGE1_CHANGES / STAGE5_CHANGES + their fixtures.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -16,7 +17,6 @@ import { createRailwayContext, project } from 'railway/iac';
 import * as baseline from '../../.railway/railway.ts';
 import * as authClients from '../../.railway/proposals/auth-clients.ts';
 import * as authEnforce from '../../.railway/proposals/auth-enforce.ts';
-import * as deployPolicy from '../../.railway/proposals/deploy-policy.ts';
 import * as allowlist from '../../.railway/proposals/nextrs-allowlist.ts';
 import { APPLIED_STAGES, EXPECTED, STAGES, expectedFor } from './expected-production.mjs';
 import {
@@ -35,7 +35,7 @@ const base = await evaluate(baseline, sdk);
 const API = '@velasia/retailing-api';
 const NODE = '@velasia/web';
 const NEXTRS = '@velasia/web-nextrs';
-const PROPOSALS = { authClients, authEnforce, deployPolicy, allowlist };
+const PROPOSALS = { authClients, authEnforce, allowlist };
 
 /** The applied stage 1 proposal's expectedChanges (the reviewed, applied plan: 9 changes). */
 const STAGE1_CHANGES = [
@@ -62,6 +62,14 @@ const STAGE1_CHANGES = [
 ];
 const stage1 = { stage: 'apiPersistence', expectedChanges: STAGE1_CHANGES };
 
+/** The applied stage 5 proposal's expectedChanges (6 resource.update). */
+const STAGE5_CHANGES = [API, NODE, NEXTRS].map((target) => ({
+  kind: 'resource.update',
+  target,
+  fields: ['source.checkSuites', 'build.watchPatterns'],
+}));
+const stage5 = { stage: 'deployPolicy', expectedChanges: STAGE5_CHANGES };
+
 const fixture = (name) =>
   JSON.parse(readFileSync(new URL(`./fixtures/plan-${name}.json`, import.meta.url), 'utf8'));
 const rules = (definition, stages) =>
@@ -87,11 +95,12 @@ const mutate = (definition, edit) => {
 
 // --- Stages ------------------------------------------------------------------------------------
 
-test('only stage 1 is applied, and railway.ts CURRENT agrees', () => {
-  assert.deepEqual(APPLIED_STAGES, ['apiPersistence']);
-  assert.deepEqual(EXPECTED.stages, ['apiPersistence']);
+test('stages 1 and 5 are applied, and railway.ts CURRENT agrees', () => {
+  assert.deepEqual(APPLIED_STAGES, ['apiPersistence', 'deployPolicy']);
+  assert.deepEqual(EXPECTED.stages, ['apiPersistence', 'deployPolicy']);
   assert.equal(baseline.CURRENT.apiPersistence, true);
-  for (const key of ['clientTokens', 'apiTokenEnforcement', 'deployPolicy']) {
+  assert.equal(baseline.CURRENT.deployPolicy, true);
+  for (const key of ['clientTokens', 'apiTokenEnforcement']) {
     assert.equal(baseline.CURRENT[key], false, key);
   }
   assert.equal(baseline.CURRENT.nextrsNetAllowAddr, baseline.NEXTRS_NET_ALLOW_ADDR_LIVE);
@@ -121,13 +130,13 @@ test('a stage is never current state by accident: railway.ts rules reject each p
     authClients:
       /RETAILING_API_SERVICE_TOKEN is a pending change|METRICS_TOKEN is a pending change/,
     authEnforce: /pending change/,
-    deployPolicy: /checkSuites/,
   };
   for (const [name, pattern] of Object.entries(patterns)) {
     fails(await staged(PROPOSALS[name]), APPLIED_STAGES, pattern);
   }
-  // And the pre-stage-1 rules reject today's baseline (it has the volume).
+  // And the pre-stage rules reject today's baseline (volume; wait for CI).
   fails(base, [], /volume|builder must be RAILPACK/);
+  fails(base, ['apiPersistence'], /checkSuites/);
 });
 
 // --- Stage 1: persistence -----------------------------------------------------------------------
@@ -254,8 +263,8 @@ test('stages 2 and 3: tokens are shared-variable references on both storefronts,
 
 // --- Stage 5: deploy policy ---------------------------------------------------------------------
 
-test('stage 5: every service waits for CI, and the storefronts watch identical paths', async () => {
-  const s = servicesOf(await staged(deployPolicy));
+test('stage 5 (applied): every service waits for CI, and the storefronts watch identical paths', () => {
+  const s = servicesOf(base);
   for (const name of [API, NODE, NEXTRS]) assert.equal(s[name].source.checkSuites, true, name);
   assert.deepEqual(s[NODE].build.watchPatterns, s[NEXTRS].build.watchPatterns);
   for (const path of ['/apps/web/**', '/packages/**', '/Dockerfile.node', '/Dockerfile.nextrs']) {
@@ -264,14 +273,14 @@ test('stage 5: every service waits for CI, and the storefronts watch identical p
   for (const path of ['/apps/retailing-api/**', '/docker/api/**', '/docker/Dockerfile.api']) {
     assert.ok(s[API].build.watchPatterns.includes(path), path);
   }
-  const drift = mutate(await staged(deployPolicy), (x) => {
+  const drift = mutate(base, (x) => {
     x[NEXTRS].build.watchPatterns = ['/apps/web/**'];
   });
-  fails(drift, ['deployPolicy'], /storefront watch patterns differ/);
-  const noCi = mutate(await staged(deployPolicy), (x) => {
+  fails(drift, APPLIED_STAGES, /storefront watch patterns differ/);
+  const noCi = mutate(base, (x) => {
     x[NODE].source.checkSuites = false;
   });
-  fails(noCi, ['deployPolicy'], /checkSuites \(wait for CI\) must be true/);
+  fails(noCi, APPLIED_STAGES, /checkSuites \(wait for CI\) must be true/);
 });
 
 // --- The live plan gate, on the real plans ------------------------------------------------------
@@ -287,7 +296,7 @@ test('plan gate: the real stage 1, 2 and 5 plans pass with exactly their changes
   for (const [name, mod, total] of [
     ['api-persistence', stage1, 9],
     ['auth-clients', authClients, 4],
-    ['deploy-policy', deployPolicy, 6],
+    ['deploy-policy', stage5, 6],
   ]) {
     const r = gate(name, mod);
     assert.deepEqual(r.problems, [], name);

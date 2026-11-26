@@ -85,9 +85,20 @@ export const OBSERVED_API_ADDRESSES = [
   { address: '10.146.207.192', seen: '2026-11-25' },
   { address: '10.236.48.211', seen: '2026-11-26' },
   { address: '10.137.93.22', seen: '2026-11-26' },
+  // M9.3 rollout (stage 1, restarts, redeploys, stage 5), from `railway logs --dns`.
+  { address: '10.235.96.83', seen: '2026-11-26' },
+  { address: '10.144.146.233', seen: '2026-11-26' },
+  { address: '10.134.23.167', seen: '2026-11-26' },
+  { address: '10.246.3.217', seen: '2026-11-26' },
+  { address: '10.246.60.155', seen: '2026-11-26' },
+  { address: '10.198.202.190', seen: '2026-11-26' },
   { address: 'fd12:382f:2f26:1:a000:1f:5092:cfc0', seen: '2026-11-25' },
   { address: 'fd12:382f:2f26:1:3000:179:bb6c:30d3', seen: '2026-11-26' },
   { address: 'fd12:382f:2f26:1:3000:1b6:5a89:5d16', seen: '2026-11-26' },
+  { address: 'fd12:382f:2f26:1:3000:a:be6b:6053', seen: '2026-11-26' },
+  { address: 'fd12:382f:2f26:1:3000:138:c390:92e9', seen: '2026-11-26' },
+  { address: 'fd12:382f:2f26:1:3000:138:b7c6:cabe', seen: '2026-11-26' },
+  { address: 'fd12:382f:2f26:1:8000:c7:8776:3c9b', seen: '2026-11-26' },
 ] as const;
 
 /*
@@ -154,14 +165,14 @@ export interface ProductionOptions {
 /**
  * Production today. Stage 1 (apiPersistence) was applied 2026-11-26 07:02 UTC and verified: the
  * volume exists now, so never plan or apply a file with `apiPersistence: false` (its plan
- * deletes the volume and the database on it).
+ * deletes the volume and the database on it). Stage 5 (deployPolicy) was applied 07:37 UTC.
  */
 export const CURRENT: ProductionOptions = {
   nextrsNetAllowAddr: NEXTRS_NET_ALLOW_ADDR_LIVE,
   apiPersistence: true,
   clientTokens: false,
   apiTokenEnforcement: false,
-  deployPolicy: false,
+  deployPolicy: true,
 };
 
 /** Secrets: shared variables (created by the owner outside Git), referenced, never values. */
