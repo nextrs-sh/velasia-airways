@@ -52,7 +52,7 @@ approval.**
 | ---------------------- | ------------------------ | ----------------------------------- |
 | `fd12::/16,10.0.0.0/8` | `fd12::/16,10.128.0.0/9` | one `variable.set` on NextRS (safe) |
 
-- Evidence: all three observed API IPv4 addresses lie in `10.128.0.0/9`, in three different /16
+- Evidence: all four observed API IPv4 addresses lie in `10.128.0.0/9`, in four different /16
   blocks. IPv6 lies in `fd12:382f:2f26:1::/64`. This is an observation of this environment, not
   a Railway guarantee. Railway documents no private IPv4 range.
 - Effect: the lower half of `10.0.0.0/8` (`10.0.0.0`–`10.127.255.255`) becomes unreachable from

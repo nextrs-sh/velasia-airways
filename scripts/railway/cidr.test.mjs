@@ -17,8 +17,10 @@ const OBSERVED = [
   '10.228.244.185',
   '10.146.207.192',
   '10.236.48.211',
+  '10.137.93.22',
   'fd12:382f:2f26:1:a000:1f:5092:cfc0',
   'fd12:382f:2f26:1:3000:179:bb6c:30d3',
+  'fd12:382f:2f26:1:3000:1b6:5a89:5d16',
 ];
 /** Private or special destinations that are not the API and must stay blocked. */
 const UNRELATED = [
@@ -99,7 +101,7 @@ test('the old /16 rule cannot describe the observed allocation', () => {
   const sixteens = new Set(
     OBSERVED.filter((a) => !a.includes(':')).map((a) => a.split('.').slice(0, 2).join('.')),
   );
-  assert.equal(sixteens.size, 3, 'three API redeploys, three different /16 blocks');
+  assert.equal(sixteens.size, 4, 'four API deployments, four different /16 blocks');
 });
 
 test('invalid, empty and unrestricted allowlists fail safely', () => {
