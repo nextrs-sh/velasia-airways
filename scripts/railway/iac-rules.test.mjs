@@ -58,9 +58,19 @@ test('it names exactly the existing services, from main, in iad', () => {
     assert.equal(svc.source.repo, 'nextrs-sh/velasia-airways');
     assert.deepEqual(svc.deploy.multiRegionConfig, { iad: { numReplicas: 1 } });
     assert.equal(svc.deploy.limitOverride, undefined);
-    assert.equal(svc.volumeAttachments, undefined);
   }
-  assert.equal(s[API].build.builder, 'RAILPACK');
+  // Stage 1 (applied 2026-11-26): only the API mounts the volume, and it is Docker-built.
+  assert.equal(s[NODE].volumeAttachments, undefined);
+  assert.equal(s[NEXTRS].volumeAttachments, undefined);
+  assert.deepEqual(Object.values(s[API].volumeAttachments), [
+    {
+      volume: 'volume.velasia-api-data',
+      mountPath: '/data',
+      volumeConfig: { region: 'iad', sizeMB: 500 },
+    },
+  ]);
+  assert.equal(s[API].build.builder, 'DOCKERFILE');
+  assert.equal(s[API].build.dockerfilePath, 'docker/Dockerfile.api');
   assert.equal(s[NODE].build.dockerfilePath, 'Dockerfile.node');
   assert.equal(s[NEXTRS].build.dockerfilePath, 'Dockerfile.nextrs');
 });
@@ -86,24 +96,31 @@ test('renaming, removing or adding a service fails (identity is the name)', () =
   );
 });
 
-test('a volume, a database or a volume attachment fails', () => {
+test('another volume, a database, a storefront attachment or a dropped API volume fails', () => {
   fails(
     mutate((s, d) => {
-      d.resources.push({
-        type: 'volume',
-        address: 'volume.velasia-api-data',
-        name: 'velasia-api-data',
-      });
+      d.resources.push({ type: 'volume', address: 'volume.extra', name: 'extra' });
     }),
-    /production has no volume/,
+    /only the three existing services and the API volume are expected/,
+  );
+  fails(
+    mutate((s, d) => {
+      d.resources.push({ type: 'database', address: 'database.pg', name: 'pg' });
+    }),
+    /only the three existing services and the API volume are expected/,
   );
   fails(
     mutate((s) => {
-      s[API].volumeAttachments = {
-        '/data': { volume: 'volume.velasia-api-data', mountPath: '/data' },
-      };
+      s[NODE].volumeAttachments = structuredClone(s[API].volumeAttachments);
     }),
-    /no volume attachment/,
+    /@velasia\/web: no volume attachment/,
+  );
+  fails(
+    mutate((s, d) => {
+      d.resources = d.resources.flat().filter((x) => x.type !== 'volume');
+      delete s[API].volumeAttachments;
+    }),
+    /volume velasia-api-data is live but missing here: an apply would DELETE it/,
   );
 });
 
@@ -140,16 +157,20 @@ test('source branch, region, replicas and limits are pinned', () => {
   );
 });
 
-test('builds: Dockerfiles for the storefronts, Railpack for the API', () => {
+test('builds: Dockerfiles for all three (the API since stage 1)', () => {
   fails(
     mutate((s) => {
-      s[API].build = { builder: 'DOCKERFILE', dockerfilePath: 'docker/Dockerfile.api' };
+      s[API].build = { builder: 'RAILPACK', buildCommand: 'pnpm install' };
     }),
-    /builder must be RAILPACK/,
+    /@velasia\/retailing-api: builder must be DOCKERFILE/,
   );
   fails(
-    mutate((s) => (s[API].deploy.startCommand = 'node dist/server.mjs')),
-    /start command must stay/,
+    mutate((s) => (s[API].deploy.startCommand = 'pnpm --filter @velasia/retailing-api start')),
+    /the image's own entrypoint runs/,
+  );
+  fails(
+    mutate((s) => (s[API].build.dockerfilePath = 'Dockerfile.node')),
+    /dockerfilePath must be docker\/Dockerfile.api/,
   );
   fails(
     mutate((s) => (s[NODE].build.dockerfilePath = 'Dockerfile.nextrs')),
@@ -191,7 +212,16 @@ test('omitting a live variable fails (a managed apply would delete it)', () => {
 });
 
 test('pending changes are not current production', () => {
-  for (const name of ['VELASIA_TODAY', 'NODE_ENV', 'RAILWAY_RUN_UID']) {
+  // Stage 1's variables are live now, no longer pending.
+  for (const name of [
+    'NODE_ENV',
+    'PORT',
+    'RAILWAY_RUN_UID',
+    'RAILWAY_DEPLOYMENT_DRAINING_SECONDS',
+  ]) {
+    assert.ok(!EXPECTED.pendingVariables.includes(name), name);
+  }
+  for (const name of ['VELASIA_TODAY']) {
     fails(
       mutate((s) => (s[API].variables[name] = { type: 'literal', value: 'x' })),
       new RegExp(`${name} is a pending change`),

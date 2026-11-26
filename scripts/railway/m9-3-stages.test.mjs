@@ -2,6 +2,11 @@
  * M9.3: the staged Railway proposals (.railway/proposals/*.ts) against the offline rules and the
  * plan gate. Plan fixtures are real `railway config plan --json` outputs of these proposals
  * (CLI 5.75.0, 2026-11-26), sanitized: fixtures/plan-{api-persistence,auth-clients,deploy-policy}.json.
+ * All three were recorded BEFORE stage 1 was applied, so each is judged against the stages that
+ * were applied when it was recorded (none), plus its own.
+ *
+ * Stage 1 (apiPersistence) is applied (2026-11-26) and folded into .railway/railway.ts; its
+ * proposal is deleted. The plan it applied stays here as STAGE1_CHANGES + its fixture.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -9,7 +14,6 @@ import { resolve } from 'node:path';
 import { test } from 'node:test';
 import { createRailwayContext, project } from 'railway/iac';
 import * as baseline from '../../.railway/railway.ts';
-import * as apiPersistence from '../../.railway/proposals/api-persistence.ts';
 import * as authClients from '../../.railway/proposals/auth-clients.ts';
 import * as authEnforce from '../../.railway/proposals/auth-enforce.ts';
 import * as deployPolicy from '../../.railway/proposals/deploy-policy.ts';
@@ -31,7 +35,32 @@ const base = await evaluate(baseline, sdk);
 const API = '@velasia/retailing-api';
 const NODE = '@velasia/web';
 const NEXTRS = '@velasia/web-nextrs';
-const PROPOSALS = { apiPersistence, authClients, authEnforce, deployPolicy, allowlist };
+const PROPOSALS = { authClients, authEnforce, deployPolicy, allowlist };
+
+/** The applied stage 1 proposal's expectedChanges (the reviewed, applied plan: 9 changes). */
+const STAGE1_CHANGES = [
+  { kind: 'resource.create', target: 'velasia-api-data' },
+  {
+    kind: 'resource.update',
+    target: API,
+    fields: [
+      'build.builder',
+      'build.buildCommand',
+      'build.dockerfilePath',
+      'deploy.startCommand',
+      'deploy.healthcheckPath',
+      'deploy.healthcheckTimeout',
+      'volumeAttachments.velasia-api-data.mountPath',
+      'volumeAttachments.velasia-api-data.volume',
+    ],
+  },
+  { kind: 'variable.set', target: `${API}.NODE_ENV` },
+  { kind: 'variable.set', target: `${API}.PORT` },
+  { kind: 'variable.set', target: `${API}.RAILWAY_DEPLOYMENT_DRAINING_SECONDS` },
+  { kind: 'variable.set', target: `${API}.RAILWAY_DOCKERFILE_PATH` },
+  { kind: 'variable.set', target: `${API}.RAILWAY_RUN_UID` },
+];
+const stage1 = { stage: 'apiPersistence', expectedChanges: STAGE1_CHANGES };
 
 const fixture = (name) =>
   JSON.parse(readFileSync(new URL(`./fixtures/plan-${name}.json`, import.meta.url), 'utf8'));
@@ -58,18 +87,20 @@ const mutate = (definition, edit) => {
 
 // --- Stages ------------------------------------------------------------------------------------
 
-test('no stage is applied yet, and railway.ts CURRENT agrees', () => {
-  assert.deepEqual(APPLIED_STAGES, []);
-  assert.deepEqual(EXPECTED.stages, []);
-  for (const key of ['apiPersistence', 'clientTokens', 'apiTokenEnforcement', 'deployPolicy']) {
+test('only stage 1 is applied, and railway.ts CURRENT agrees', () => {
+  assert.deepEqual(APPLIED_STAGES, ['apiPersistence']);
+  assert.deepEqual(EXPECTED.stages, ['apiPersistence']);
+  assert.equal(baseline.CURRENT.apiPersistence, true);
+  for (const key of ['clientTokens', 'apiTokenEnforcement', 'deployPolicy']) {
     assert.equal(baseline.CURRENT[key], false, key);
   }
   assert.equal(baseline.CURRENT.nextrsNetAllowAddr, baseline.NEXTRS_NET_ALLOW_ADDR_LIVE);
 });
 
-test('every proposal names one known stage; enforcement needs persistence and client tokens', () => {
+test('every unapplied stage has one proposal; enforcement needs persistence and client tokens', () => {
   const stages = Object.values(PROPOSALS).map((p) => p.stage);
-  assert.deepEqual(new Set(stages), new Set(Object.keys(STAGES)));
+  for (const s of stages) assert.ok(!APPLIED_STAGES.includes(s), `${s} is applied: delete it`);
+  assert.deepEqual(new Set([...stages, ...APPLIED_STAGES]), new Set(Object.keys(STAGES)));
   assert.deepEqual(STAGES.apiTokenEnforcement.requires, ['apiPersistence', 'clientTokens']);
   assert.throws(() => expectedFor(['nope']), /unknown stage/);
 });
@@ -87,21 +118,22 @@ test('each proposal differs from railway.ts by exactly its expectedChanges, and 
 
 test('a stage is never current state by accident: railway.ts rules reject each proposal', async () => {
   const patterns = {
-    apiPersistence: /volume|builder must be RAILPACK/,
     authClients:
       /RETAILING_API_SERVICE_TOKEN is a pending change|METRICS_TOKEN is a pending change/,
     authEnforce: /pending change/,
     deployPolicy: /checkSuites/,
   };
   for (const [name, pattern] of Object.entries(patterns)) {
-    fails(await staged(PROPOSALS[name]), [], pattern);
+    fails(await staged(PROPOSALS[name]), APPLIED_STAGES, pattern);
   }
+  // And the pre-stage-1 rules reject today's baseline (it has the volume).
+  fails(base, [], /volume|builder must be RAILPACK/);
 });
 
 // --- Stage 1: persistence -----------------------------------------------------------------------
 
-test('stage 1: the API mounts exactly velasia-api-data at /data, Docker-built, health-checked', async () => {
-  const def = await staged(apiPersistence);
+test('stage 1 (applied): railway.ts mounts exactly velasia-api-data at /data, Docker-built, health-checked', () => {
+  const def = base;
   const api = servicesOf(def)[API];
   assert.equal(api.build.builder, 'DOCKERFILE');
   assert.equal(api.build.dockerfilePath, 'docker/Dockerfile.api');
@@ -129,8 +161,8 @@ test('stage 1: the API mounts exactly velasia-api-data at /data, Docker-built, h
   }
 });
 
-test('stage 1 rules reject a wrong mount, size, region, missing guard or missing health check', async () => {
-  const def = await staged(apiPersistence);
+test('stage 1 rules reject a wrong mount, size, region, missing guard or missing health check', () => {
+  const def = base;
   const S = ['apiPersistence'];
   const vol = (d) => d.resources.flat().find((r) => r.type === 'volume');
   fails(
@@ -244,15 +276,16 @@ test('stage 5: every service waits for CI, and the storefronts watch identical p
 
 // --- The live plan gate, on the real plans ------------------------------------------------------
 
+// The fixtures were planned before stage 1: judge each against the stages applied then (none).
 const gate = (name, mod) =>
   evaluatePlan(fixture(name), {
-    expected: expectedFor([...APPLIED_STAGES, mod.stage]),
+    expected: expectedFor([mod.stage]),
     expectedChanges: mod.expectedChanges,
   });
 
 test('plan gate: the real stage 1, 2 and 5 plans pass with exactly their changes', () => {
   for (const [name, mod, total] of [
-    ['api-persistence', apiPersistence, 9],
+    ['api-persistence', stage1, 9],
     ['auth-clients', authClients, 4],
     ['deploy-policy', deployPolicy, 6],
   ]) {
@@ -264,10 +297,10 @@ test('plan gate: the real stage 1, 2 and 5 plans pass with exactly their changes
   }
 });
 
-test('plan gate: the stage 1 plan is refused against current production (a volume is not current)', () => {
+test('plan gate: the stage 1 plan is refused against pre-stage-1 production (a volume was not current)', () => {
   const r = evaluatePlan(fixture('api-persistence'), {
-    expected: EXPECTED,
-    expectedChanges: apiPersistence.expectedChanges,
+    expected: expectedFor([]),
+    expectedChanges: STAGE1_CHANGES,
   });
   hasProblem(r, /declares unexpected volume velasia-api-data/);
   hasProblem(r, /attaches an unexpected volume to @velasia\/retailing-api/);
@@ -284,12 +317,12 @@ test('plan gate: an update outside the listed settings fails, even on the right 
   hasProblem(
     evaluatePlan(plan, {
       expected: expectedFor(['apiPersistence']),
-      expectedChanges: apiPersistence.expectedChanges,
+      expectedChanges: STAGE1_CHANGES,
     }),
     /changes settings outside the proposal: deploy\.multiRegionConfig\.iad\.numReplicas, deploy\.region/,
   );
   // An expected update without a field list accepts nothing.
-  const bare = apiPersistence.expectedChanges.map(({ fields: _f, ...c }) => c);
+  const bare = STAGE1_CHANGES.map(({ fields: _f, ...c }) => c);
   hasProblem(
     evaluatePlan(fixture('api-persistence'), {
       expected: expectedFor(['apiPersistence']),
@@ -306,7 +339,7 @@ test('plan gate: an update outside the listed settings fails, even on the right 
 
 test('plan gate: dropping, resizing, moving or re-attaching the volume fails', () => {
   const S = expectedFor(['apiPersistence']);
-  const changes = apiPersistence.expectedChanges;
+  const changes = STAGE1_CHANGES;
   // After stage 1: production has the volume; a plan that drops it deletes the database.
   const dropped = fixture('api-persistence');
   dropped.currentGraph = structuredClone(dropped.desiredGraph);
