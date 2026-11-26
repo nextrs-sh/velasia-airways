@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { statSync } from 'node:fs';
 import {
   PROMETHEUS_CONTENT_TYPE,
@@ -118,7 +119,12 @@ export function registerStateGauges(
   sources: {
     queueDepth: () => number;
     databasePath: () => string | undefined;
-    memoryStores: () => { offers: number; sessions: number };
+    memoryStores: () => {
+      offers: number;
+      sessions: number;
+      offersCreated: number;
+      sessionsCreated: number;
+    };
     pendingSessionWrites: () => number;
     activeHolds: () => number;
     ready: () => boolean;
@@ -145,6 +151,17 @@ export function registerStateGauges(
       const stats = sources.memoryStores();
       gauge.set(stats.offers, { store: 'offers' });
       gauge.set(stats.sessions, { store: 'sessions' });
+    },
+  });
+  metrics.registry.gauge({
+    name: 'velasia_memory_store_created_total',
+    // Monotonic within a process (a counter, exposed as a gauge like process_cpu_seconds_total).
+    help: 'Offers and shopping sessions created since the process started (Milestone 9.3).',
+    labelNames: ['store'],
+    collect: (gauge) => {
+      const stats = sources.memoryStores();
+      gauge.set(stats.offersCreated, { store: 'offers' });
+      gauge.set(stats.sessionsCreated, { store: 'sessions' });
     },
   });
   metrics.registry.gauge({
@@ -317,10 +334,13 @@ export function registerMetricsRoute(
   metrics: ApiMetrics,
   options: { token?: string },
 ): void {
+  // M9.3: compared on SHA-256 digests with timingSafeEqual, like the service token.
+  const digest = (value: string) => createHash('sha256').update(value).digest();
+  const expected = options.token ? digest(`Bearer ${options.token}`) : null;
   app.get('/metrics', async (request, reply) => {
-    if (options.token) {
+    if (expected) {
       const header = request.headers.authorization ?? '';
-      if (header !== `Bearer ${options.token}`) {
+      if (!timingSafeEqual(digest(header), expected)) {
         return reply
           .code(401)
           .header('cache-control', 'no-store')

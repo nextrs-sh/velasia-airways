@@ -12,7 +12,15 @@ import {
   type Caller,
   type ReadyCheckout,
 } from './checkout-harness';
-import { inspect, killedBy, newDb, startServer, stop, useProcessHarness } from './process-harness';
+import {
+  elapseWhileDown,
+  inspect,
+  killedBy,
+  newDb,
+  startServer,
+  stop,
+  useProcessHarness,
+} from './process-harness';
 
 /*
  * Fault injection with real processes. Each test runs the API as a child process on its own
@@ -109,8 +117,9 @@ describe('restart', { timeout: 120_000 }, () => {
     expect(await seatStatus(server, observer, FLIGHT, order.seats[0].seatId)).toBe('OCCUPIED');
     await stop(server);
 
-    // A day later the hold has long ended: startup reconciliation releases it.
-    server = await startServer(db, { VELASIA_TODAY: '2026-12-02' });
+    // Down for a day (real time): the hold has long ended, startup reconciliation releases it.
+    await elapseWhileDown(db, 24 * 60 * 60_000);
+    server = await startServer(db);
     expect(server.output()).not.toMatch(/error/i);
     await stop(server);
     const { orders } = await inspect(db);

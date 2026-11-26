@@ -210,7 +210,9 @@ export function createRetailingService({
   function context(scenario: Scenario = NO_SCENARIO): PricingContext {
     const inventory = flights.current();
     return {
+      // Scenarios simulate elapsed time, so they move both (as the unpinned clock would).
       now: clock.now() + scenario.clockOffsetMs,
+      businessNow: clock.businessNow() + scenario.clockOffsetMs,
       inventoryVersion: inventoryVersionFor(inventory.referenceDate),
       demandShift: scenario.demandShift,
       soldOut: scenario.soldOut,
@@ -232,8 +234,16 @@ export function createRetailingService({
   const candidateFor = (itineraryId: string): Candidate | null =>
     resolveCandidate(flights.current(), itineraryId);
 
+  /**
+   * Entries ever created (M9.3), for the benchmark gate. Store sizes alone cannot show them:
+   * with real-time expiry a write also sweeps expired entries, so a store can stay the same
+   * size while offers are created.
+   */
+  const created = { offers: 0, sessions: 0 };
+
   function storeOffer(offer: StoredOffer, now: number) {
     offers.set(offer.id, offer, now);
+    created.offers += 1;
     return offer;
   }
 
@@ -537,7 +547,7 @@ export function createRetailingService({
       : undefined;
     return buildSeatMap(segment, {
       seed: flights.current().seed,
-      now: ctx.now,
+      now: ctx.businessNow,
       takenSeatIds: taken,
     });
   }
@@ -915,6 +925,7 @@ export function createRetailingService({
         orderedOrderId: null,
       };
       sessions.set(session.id, session, ctx.now);
+      created.sessions += 1;
       return { ok: true, value: { session: toPublicSession(session, ctx), token } };
     },
 
@@ -1023,7 +1034,10 @@ export function createRetailingService({
       const inventory = flights.current();
       const instance = inventory.getInstance(flightId);
       if (!instance) return fail(404, 'NOT_FOUND', 'There’s no seat map for this flight.');
-      return { ok: true, value: buildSeatMap(instance, { seed: inventory.seed, now: ctx.now }) };
+      return {
+        ok: true,
+        value: buildSeatMap(instance, { seed: inventory.seed, now: ctx.businessNow }),
+      };
     },
 
     ancillaryCatalogue() {
@@ -1366,9 +1380,14 @@ export function createRetailingService({
       return sessions.get(id)?.orderedOrderId ?? null;
     },
 
-    /** The API clock as a request sees it (scenarios shift it). */
+    /** Real time as a request sees it (scenarios shift it): expiry and timestamps. */
     now(scenario?: Scenario): number {
       return context(scenario).now;
+    },
+
+    /** Business time as a request sees it: departure-relative rules (see `clock.ts`). */
+    businessNow(scenario?: Scenario): number {
+      return context(scenario).businessNow;
     },
 
     /** Pricing inputs as a request sees them, for servicing quotes (Milestone 6). */
@@ -1390,7 +1409,12 @@ export function createRetailingService({
 
     /** For tests and diagnostics: how much is held in memory. */
     stats() {
-      return { offers: offers.size, sessions: sessions.size };
+      return {
+        offers: offers.size,
+        sessions: sessions.size,
+        offersCreated: created.offers,
+        sessionsCreated: created.sessions,
+      };
     },
 
     // -----------------------------------------------------------------------

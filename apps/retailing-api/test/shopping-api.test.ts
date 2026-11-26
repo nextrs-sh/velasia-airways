@@ -612,6 +612,9 @@ describe('memory bounds', () => {
       });
       expect(offers.ok).toBe(true);
     }
-    expect(retailing.stats()).toEqual({ sessions: 5, offers: 8 });
+    expect(retailing.stats()).toMatchObject({ sessions: 5, offers: 8 });
+    // Every one of the 25 searches created offers (offerReuseMs: 0), and 25 sessions were made.
+    expect(retailing.stats().sessionsCreated).toBe(25);
+    expect(retailing.stats().offersCreated).toBeGreaterThan(8);
   });
 });

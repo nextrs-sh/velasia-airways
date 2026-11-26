@@ -6,6 +6,7 @@ import { assertOrderInvariants } from '../src/orders/lifecycle';
 import { AllocationLedger } from '../src/inventory/ledger';
 import { newGuestToken, newKey } from './checkout-harness';
 import {
+  elapseWhileDown,
   inspect,
   killedBy,
   newDb,
@@ -154,8 +155,9 @@ describe('process killed during a flight change', { timeout: 120_000 }, () => {
     expect(order.servicing[0]!.payment!.attempts[0]).toMatchObject({ status: 'FAILED' });
     expect(order.servicing[0]!.payment!.attempts[0]!.failureReason).toMatch(/nothing was charged/);
     await stop(next);
-    // A day later the claim has ended: startup releases it, the booking is as it was.
-    next = await startServer(db, { VELASIA_TODAY: '2026-12-02' });
+    // Down for a day (real time): the claim has ended, startup releases it, the booking is as it was.
+    await elapseWhileDown(db, 24 * 60 * 60_000);
+    next = await startServer(db);
     await stop(next);
     const state = await inspect(db);
     expectConsistent(state);

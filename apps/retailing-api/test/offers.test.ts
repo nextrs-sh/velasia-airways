@@ -24,7 +24,9 @@ const FAMILY = (code: 'LIGHT' | 'CLASSIC' | 'FLEX' | 'BUSINESS') =>
   FARE_FAMILIES_BY_CODE.get(code)!;
 const VALIDITY = 15 * 60_000;
 const ctx = (overrides: Partial<PricingContext> = {}): PricingContext => ({
-  now: clock.now(),
+  // Both start at the pinned business midnight; tests move one or the other.
+  now: clock.businessNow(),
+  businessNow: clock.businessNow(),
   inventoryVersion: inventoryVersionFor(TODAY),
   demandShift: 0,
   soldOut: false,
@@ -134,7 +136,7 @@ describe('fare family eligibility', () => {
   it('makes nothing available once sales close or the flight is cancelled', () => {
     const flight = candidate(A21N_MNL_SIN);
     const closing = flight.segments[0]!.departureUtc - 30 * 60_000;
-    const evaluated = evaluateFamilies(flight, ONE_ADULT, ctx({ now: closing }));
+    const evaluated = evaluateFamilies(flight, ONE_ADULT, ctx({ businessNow: closing }));
     expect(evaluated.eligible).toEqual([]);
     expect(evaluated.availability).toBe('departed');
     expect(evaluated.unavailable.every((entry) => entry.reason === 'itinerary-unavailable')).toBe(
@@ -158,7 +160,7 @@ describe('fare family eligibility', () => {
 
 describe('offer pricing', () => {
   it('prices Light exactly at the indicative search price, so "from" prices hold', () => {
-    const sellable = findSellable(inventory, clock.now(), {
+    const sellable = findSellable(inventory, clock.businessNow(), {
       origin: 'DVO',
       destination: 'SIN',
       date: '2026-12-15',
@@ -167,7 +169,7 @@ describe('offer pricing', () => {
     }).itineraries;
     const more = ['MNL-CEB', 'MNL-NRT', 'CEB-HKG'].flatMap((route) => {
       const [origin, destination] = route.split('-') as [string, string];
-      return findSellable(inventory, clock.now(), {
+      return findSellable(inventory, clock.businessNow(), {
         origin,
         destination,
         date: '2026-12-18',

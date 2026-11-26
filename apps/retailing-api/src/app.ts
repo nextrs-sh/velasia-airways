@@ -316,6 +316,7 @@ export function buildApp({
       store,
       inventory: () => flights.current(),
       now: () => clock.now(),
+      businessNow: () => clock.businessNow(),
       config: settings.accounts,
       log: app.log,
     });

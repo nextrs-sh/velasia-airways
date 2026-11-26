@@ -150,7 +150,7 @@ export function createServicingService({
 }: {
   store: OrderStore;
   flights: FlightService;
-  retailing: Pick<RetailingService, 'now' | 'pricingContext' | 'offerValidityMs'>;
+  retailing: Pick<RetailingService, 'now' | 'businessNow' | 'pricingContext' | 'offerValidityMs'>;
   provider: PaymentSimulator;
   refunds: RefundSimulator;
   config: ServicingConfig;
@@ -162,6 +162,7 @@ export function createServicingService({
     const inventory = flights.current();
     return {
       now: retailing.now(scenario),
+      businessNow: retailing.businessNow(scenario),
       pricing: retailing.pricingContext(scenario),
       inventory,
       seed: inventory.seed,
@@ -629,11 +630,11 @@ export function createServicingService({
       const closed = (reason: string) => ({ allowed: false, reason, closesAt: null });
       const seatFlights = trip.legs
         .flatMap((leg) => leg.segments)
-        .filter((segment) => ctx.now < seatClosesAt(segment));
+        .filter((segment) => ctx.businessNow < seatClosesAt(segment));
       const extras = ancillaryView(order, trip, ctx).offers.some(
         (offer) => !offer.unavailableReason,
       );
-      const cancel = cancelAvailability(order, trip, ctx.now);
+      const cancel = cancelAvailability(order, trip, ctx.businessNow);
       const refundPending = order.servicingState === 'REFUND_PENDING';
       return {
         ok: true,
@@ -641,7 +642,7 @@ export function createServicingService({
           order,
           servicing: {
             changeFlight: trip.legs.map((leg) => {
-              const availability = changeAvailability(leg, ctx.now);
+              const availability = changeAvailability(leg, ctx.businessNow);
               return {
                 direction: leg.direction,
                 family: leg.family.code,
@@ -701,7 +702,7 @@ export function createServicingService({
               'This booking has no return flight to change.',
               'direction',
             );
-          const availability = changeAvailability(leg, ctx.now);
+          const availability = changeAvailability(leg, ctx.businessNow);
           if (!availability.allowed) return fail(409, 'CHANGE_NOT_ALLOWED', availability.reason!);
           const { inventory } = ctx;
           const today = inventory.referenceDate;

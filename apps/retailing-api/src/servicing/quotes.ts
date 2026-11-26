@@ -81,7 +81,10 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
 export interface QuoteContext {
+  /** Real time: quote validity, claims and timestamps (see `clock.ts`). */
   now: number;
+  /** Business time: change, cancel, seat and extras windows relative to departure. */
+  businessNow: number;
   pricing: PricingContext;
   inventory: Inventory;
   seed: string;
@@ -261,7 +264,7 @@ export function quoteChange(
       'direction',
     );
   }
-  const availability = changeAvailability(leg, ctx.now);
+  const availability = changeAvailability(leg, ctx.businessNow);
   if (!availability.allowed) return fail(409, 'CHANGE_NOT_ALLOWED', availability.reason!);
   const first = candidate.segments[0]!;
   const last = candidate.segments.at(-1)!;
@@ -466,7 +469,7 @@ export function seatClosesAt(segment: FlightInstance) {
 
 /** A flight's seat map now, as the inventory and every active hold leave it. */
 export function seatMapNow(segment: FlightInstance, ctx: QuoteContext): SeatMap {
-  return buildSeatMap(segment, { seed: ctx.seed, now: ctx.now });
+  return buildSeatMap(segment, { seed: ctx.seed, now: ctx.businessNow });
 }
 
 export function quoteSeats(
@@ -517,7 +520,7 @@ export function quoteSeats(
     }
     const { leg, segment } = located;
     const flight = formatFlightNumber(segment.schedule.flightNumber);
-    if (ctx.now >= seatClosesAt(segment)) {
+    if (ctx.businessNow >= seatClosesAt(segment)) {
       return fail(
         409,
         'CHANGE_NOT_ALLOWED',
@@ -731,7 +734,7 @@ export function ancillaryView(
         (ANCILLARIES_BY_ID.get(existing.productId)?.extraWeightKg ?? 0)
     ) {
       unavailableReason = 'You already have this much extra baggage or more.';
-    } else if (ctx.now >= ancillaryClosesAt(offer.category, leg, segment)) {
+    } else if (ctx.businessNow >= ancillaryClosesAt(offer.category, leg, segment)) {
       unavailableReason = `Closes ${ANCILLARY_CUTOFF_HOURS[offer.category]} hours before departure.`;
     }
     return {
@@ -838,7 +841,7 @@ export function quoteAncillaries(
         at('productId'),
       );
     }
-    if (ctx.now >= ancillaryClosesAt(change.category, leg, segment)) {
+    if (ctx.businessNow >= ancillaryClosesAt(change.category, leg, segment)) {
       return fail(
         409,
         'ANCILLARY_UNAVAILABLE',
@@ -995,7 +998,7 @@ export function quoteCancellation(
 ): QuoteFailure | CancellationComputed {
   const refused = modifiable(order);
   if (refused) return refused;
-  const availability = cancelAvailability(order, trip, ctx.now);
+  const availability = cancelAvailability(order, trip, ctx.businessNow);
   if (!availability.allowed) return fail(409, 'CHANGE_NOT_ALLOWED', availability.reason!);
   const travellers = feeTravellers(order);
   const lines: ServicingQuoteLine[] = [];

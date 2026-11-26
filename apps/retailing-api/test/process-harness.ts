@@ -129,6 +129,34 @@ export async function inspect(
   return { orders, charges, refunds };
 }
 
+/**
+ * Real time passing while the API is down (Milestone 9.3): every stored hold and servicing
+ * claim expiry moves `ms` into the past, written through the repository so the index fields
+ * follow. Holds and claims expire on real time, so moving the business date (`VELASIA_TODAY`)
+ * no longer ends them, and a child process's clock can't be moved from the test.
+ */
+export async function elapseWhileDown(dbPath: string, ms: number): Promise<void> {
+  // In its own frame: no handle may outlive it, or TalaDB keeps the file locked.
+  await (async () => {
+    const db = await openDatabase(dbPath);
+    const repository = new OrderRepository(db.orders);
+    for (const order of await repository.all()) {
+      await repository.replace(order, {
+        ...order,
+        hold: { ...order.hold, expiresAt: order.hold.expiresAt - ms },
+        servicing: order.servicing.map((op) =>
+          op.claim ? { ...op, claim: { ...op.claim, expiresAt: op.claim.expiresAt - ms } } : op,
+        ),
+      });
+    }
+    await db.close();
+  })();
+  for (let i = 0; i < 6; i += 1) {
+    gc();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 export function newDb() {
   const dir = mkdtempSync(join(tmpdir(), 'velasia-crash-'));
   dirs.push(dir);

@@ -14,7 +14,8 @@ import { clock, inventory, TODAY } from './helpers';
 export const FIXTURE_GUEST_TOKEN = 'G'.repeat(43);
 
 export function sampleOrder(overrides: Partial<StoredOrder> = {}): StoredOrder {
-  const now = clock.now();
+  // A fixed instant (the pinned business midnight) keeps fixtures deterministic.
+  const now = clock.businessNow();
   const candidate = resolveCandidate(inventory, 'NV501-20261215')!;
   const family = FARE_FAMILIES_BY_CODE.get('CLASSIC')!;
   const offer = toPublicOffer(
@@ -22,7 +23,13 @@ export function sampleOrder(overrides: Partial<StoredOrder> = {}): StoredOrder {
       candidate,
       family,
       { adults: 1, children: 0, infants: 0 },
-      { now, inventoryVersion: inventoryVersionFor(TODAY), demandShift: 0, soldOut: false },
+      {
+        now,
+        businessNow: now,
+        inventoryVersion: inventoryVersionFor(TODAY),
+        demandShift: 0,
+        soldOut: false,
+      },
       15 * 60_000,
     ),
     'AVAILABLE',
