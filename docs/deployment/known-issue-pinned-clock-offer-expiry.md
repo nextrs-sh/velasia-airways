@@ -1,9 +1,8 @@
 # Known issue: a pinned business date freezes offer expiry
 
-**Status:** open. Found during the Milestone 9 benchmark rehearsal (2026-11-25) and
-investigated in Milestone 9.1. **Not fixed on purpose in the benchmark branch:** the benchmark
-works around it ([readiness](railway-benchmark-readiness.md#the-shared-api-offer-store-pinned-clock)).
-The application change belongs in its own milestone.
+**Status: fixed in Milestone 9.3** (implemented and tested locally; not yet deployed). The fix
+separates business time from real time: [M9.3 benchmark correctness](M9.3-BENCHMARK-CORRECTNESS.md).
+The text below is the original M9.1 analysis, kept as found.
 
 ## What happens
 

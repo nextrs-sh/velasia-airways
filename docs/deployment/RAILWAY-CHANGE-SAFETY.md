@@ -18,6 +18,32 @@ services**.
    expected entry, and a written reason in the PR.
 6. Secrets are never values in the repository: `ctx.shared.NAME` or `preserve()` only.
 
+## M9.3: staged proposals
+
+Production changes now come as **stages** (`STAGES` in `scripts/railway/expected-production.mjs`,
+the same flags in `.railway/railway.ts`'s `ProductionOptions`): `apiPersistence`,
+`clientTokens`, `apiTokenEnforcement`, `nextrsAllowlist`, `deployPolicy`. Rules:
+
+1. A proposal exports `stage`, `expectedChanges` and is `production({ ...CURRENT, <stage>: … })`:
+   one stage on top of the current baseline, never two.
+2. It is checked against **production with that stage applied** (`expectedFor`): a stage may make
+   a volume, a Docker-built API, a health check, token references or `checkSuites` expected;
+   anything else still fails.
+3. A stage's `requires` must be applied first: the plan gate fails "prerequisite stage … is not
+   applied yet" (stage 3 needs 1 and 2).
+4. A `resource.update` entry lists its `fields`; the gate fails an update that touches any other
+   setting of the same service (region, replicas, limits, …), and an entry without `fields`.
+5. Volumes: the gate fails a plan that declares a volume the stage does not expect, resizes or
+   moves it, attaches it elsewhere, or **drops a live volume**. Note that once a volume exists,
+   any whole-project file that omits it plans its deletion, including the old baseline: fold a
+   stage in before planning the next one.
+6. After an applied stage: set its flag in `CURRENT`, add it to `APPLIED_STAGES` (check-iac
+   requires both to agree), delete the proposal, and the baseline plan must be a no-op.
+7. `pnpm railway:deployments` (read-only) checks deployment parity before and after a change or
+   a benchmark series ([M9.3 deployment parity](M9.3-DEPLOYMENT-PARITY.md)).
+
+Order and approval package: [M9.3 release readiness](M9.3-RAILWAY-RELEASE-READINESS.md).
+
 ## The checks
 
 | Check                    | Runs where                      | Needs Railway | What it catches                                                                                                                                                                                                                                                                                                                     |

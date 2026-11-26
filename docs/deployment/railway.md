@@ -3,6 +3,14 @@
 Railway is the active cloud target (Milestone 9). The DigitalOcean App Platform guide is kept
 as an [archived alternative](digitalocean-app-platform.md).
 
+> **M9.3 (2026-11-26):** the changes that make this environment durable, secure and
+> benchmark-ready are prepared as five staged, plan-gated proposals, none applied yet: TalaDB on
+> a volume with the Docker-built API, health check and draining window (stage 1), service and
+> metrics tokens (stages 2–3), the narrowed NextRS allowlist (4), coordinated deploys (5). Start
+> at [M9.3 release readiness](M9.3-RAILWAY-RELEASE-READINESS.md); the outcome is in
+> [the M9.3 final report](M9.3-FINAL-REPORT.md). Until stage 1 is applied, everything below about
+> the volume describes the target, not production.
+
 ## Production today (M9.2, verified 2026-11-26)
 
 One Railway project, `velasia-airways`, environment `production`, region `iad` (US East). Three
@@ -390,8 +398,10 @@ The failure is explicit: there is no fallback to Node.js and no allow-all.
 > **Not deployed.** Production has no volume, and the API is built with Railpack, so
 > `docker/api/start.sh` and its `TALADB_REQUIRE_VOLUME` guard never run. The database lives on
 > ephemeral storage. This section is the target design. The migration to it is planned in
-> [TALADB-PERSISTENCE-MIGRATION.md](TALADB-PERSISTENCE-MIGRATION.md) and needs the owner's
-> approval.
+> [TALADB-PERSISTENCE-MIGRATION.md](TALADB-PERSISTENCE-MIGRATION.md). **M9.3:** the owner chose
+> a fresh database (option A); the change is `.railway/proposals/api-persistence.ts` (one API
+> redeploy), validated locally 31/31: [M9.3-TALADB-PERSISTENCE-VALIDATION.md](M9.3-TALADB-PERSISTENCE-VALIDATION.md).
+> Still needs the owner's approval of that stage.
 
 | Fact (Railway docs)                                                                        | What this deployment does                                                                                                                                                                                                                                                                                                                                                       |
 | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -425,6 +435,10 @@ run's file only on purpose, with the API pointed elsewhere. Wiping the whole vol
 also deletes its backups.
 
 ## Health checks, ports and shutdown
+
+> Production today (M9.2): only the storefronts have a deploy health check (60 s timeout), and no
+> service sets a draining window. The API's row is M9.3 stage 1 (`/health/ready`, 120 s, 15 s
+> draining). The storefront draining values below are the original M9 design, not configured.
 
 | Service        | `PORT` | Health check (deploy-time only)                                                     | Timeout             | SIGTERM handling                                                                                       | Draining |
 | -------------- | ------ | ----------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------ | -------- |
