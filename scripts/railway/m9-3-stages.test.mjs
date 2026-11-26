@@ -5,8 +5,8 @@
  * All three were recorded BEFORE stage 1 was applied, so each is judged against the stages that
  * were applied when it was recorded (none), plus its own.
  *
- * Stages 1 (apiPersistence) and 5 (deployPolicy) are applied (2026-11-26) and folded into
- * .railway/railway.ts; their proposals are deleted. The plans they applied stay here as
+ * Stages 1 (apiPersistence), 5 (deployPolicy) and 4 (nextrsAllowlist) are applied (2026-11-26)
+ * and folded into .railway/railway.ts; their proposals are deleted. The plans they applied stay here as
  * STAGE1_CHANGES / STAGE5_CHANGES + their fixtures.
  */
 import assert from 'node:assert/strict';
@@ -17,7 +17,6 @@ import { createRailwayContext, project } from 'railway/iac';
 import * as baseline from '../../.railway/railway.ts';
 import * as authClients from '../../.railway/proposals/auth-clients.ts';
 import * as authEnforce from '../../.railway/proposals/auth-enforce.ts';
-import * as allowlist from '../../.railway/proposals/nextrs-allowlist.ts';
 import { APPLIED_STAGES, EXPECTED, STAGES, expectedFor } from './expected-production.mjs';
 import {
   checkCurrentState,
@@ -35,7 +34,7 @@ const base = await evaluate(baseline, sdk);
 const API = '@velasia/retailing-api';
 const NODE = '@velasia/web';
 const NEXTRS = '@velasia/web-nextrs';
-const PROPOSALS = { authClients, authEnforce, allowlist };
+const PROPOSALS = { authClients, authEnforce };
 
 /** The applied stage 1 proposal's expectedChanges (the reviewed, applied plan: 9 changes). */
 const STAGE1_CHANGES = [
@@ -95,15 +94,16 @@ const mutate = (definition, edit) => {
 
 // --- Stages ------------------------------------------------------------------------------------
 
-test('stages 1 and 5 are applied, and railway.ts CURRENT agrees', () => {
-  assert.deepEqual(APPLIED_STAGES, ['apiPersistence', 'deployPolicy']);
-  assert.deepEqual(EXPECTED.stages, ['apiPersistence', 'deployPolicy']);
+test('stages 1, 5 and 4 are applied, and railway.ts CURRENT agrees', () => {
+  const applied = ['apiPersistence', 'deployPolicy', 'nextrsAllowlist'];
+  assert.deepEqual(APPLIED_STAGES, applied);
+  assert.deepEqual(EXPECTED.stages, applied);
   assert.equal(baseline.CURRENT.apiPersistence, true);
   assert.equal(baseline.CURRENT.deployPolicy, true);
   for (const key of ['clientTokens', 'apiTokenEnforcement']) {
     assert.equal(baseline.CURRENT[key], false, key);
   }
-  assert.equal(baseline.CURRENT.nextrsNetAllowAddr, baseline.NEXTRS_NET_ALLOW_ADDR_LIVE);
+  assert.equal(baseline.CURRENT.nextrsNetAllowAddr, baseline.NEXTRS_NET_ALLOW_ADDR_INTENDED);
 });
 
 test('every unapplied stage has one proposal; enforcement needs persistence and client tokens', () => {

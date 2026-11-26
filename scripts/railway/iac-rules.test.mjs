@@ -3,11 +3,9 @@ import { resolve } from 'node:path';
 import { test } from 'node:test';
 import { createRailwayContext, preserve, project } from 'railway/iac';
 import * as baseline from '../../.railway/railway.ts';
-import * as allowlistProposal from '../../.railway/proposals/nextrs-allowlist.ts';
 import { EXPECTED } from './expected-production.mjs';
 import {
   checkCurrentState,
-  compareChanges,
   definitionChanges,
   evaluate,
   servicesOf,
@@ -46,7 +44,8 @@ const fails = (definition, pattern, extra) => {
 test('the reconciled file passes as current production', () => {
   const { failures, warnings } = run(base);
   assert.deepEqual(failures, []);
-  assert.ok(warnings.some((w) => /live allowlist .* broader/.test(w)));
+  // Stage 4 (applied): the live allowlist is the narrowed policy, so no 'broader' warning.
+  assert.ok(!warnings.some((w) => /live allowlist .* broader/.test(w)));
   // Stage 5 (applied): both storefronts watch the same paths, so no drift warning.
   assert.ok(!warnings.some((w) => /watch patterns differ/.test(w)));
 });
@@ -295,24 +294,17 @@ test('NextRS allowlist: invalid, empty, broad or too-narrow values fail', () => 
     /must be a literal/,
   );
   fails(base, /intended NextRS allowlist: .*too broad/, { intended: 'fd12::/16,10.0.0.0/8' });
-  // Only the recorded live value is tolerated as broad (a warning, not a pass for any /8).
+  // Since stage 4 the old dashboard value is no longer tolerated: it fails as too broad.
+  fails(allow('fd12::/16,10.0.0.0/8'), /too broad/);
   assert.deepEqual(run(allow('fd12::/16,10.128.0.0/9')).failures, []);
 });
 
-test('the allowlist proposal is exactly one variable change', async () => {
-  const proposal = await evaluate(allowlistProposal, sdk);
-  const changes = definitionChanges(base, proposal);
-  assert.deepEqual(changes, [{ kind: 'variable.set', target: `${NEXTRS}.NEXTRS_NET_ALLOW_ADDR` }]);
-  assert.deepEqual(compareChanges(changes, allowlistProposal.expectedChanges), {
-    unexpected: [],
-    missing: [],
+test('stage 4 (applied): the baseline sets the narrowed allowlist as a literal', () => {
+  assert.equal(baseline.NEXTRS_NET_ALLOW_ADDR_LIVE, baseline.NEXTRS_NET_ALLOW_ADDR_INTENDED);
+  assert.deepEqual(servicesOf(base)[NEXTRS].variables.NEXTRS_NET_ALLOW_ADDR, {
+    type: 'literal',
+    value: 'fd12::/16,10.128.0.0/9',
   });
-  const allowedTargets = new Set(allowlistProposal.expectedChanges.map((c) => c.target));
-  assert.deepEqual(run(proposal, { allowedTargets }).failures, []);
-  assert.equal(
-    servicesOf(proposal)[NEXTRS].variables.NEXTRS_NET_ALLOW_ADDR.value,
-    'fd12::/16,10.128.0.0/9',
-  );
 });
 
 test('offline change detection covers deletes, creates and service updates', () => {

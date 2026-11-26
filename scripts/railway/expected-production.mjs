@@ -202,6 +202,9 @@ export const APPLIED_STAGES = [
   // 2026-11-26 07:37 UTC (pinned plan, 6 resource.update, 0 destructive). Railway redeployed all
   // three services from the settings change (same images); parity and persistence verified.
   'deployPolicy',
+  // 2026-11-26 07:47 UTC (pinned plan, 1 variable.set on NextRS); address recheck first (every
+  // observed API address inside fd12::/16,10.128.0.0/9); NextRS ready, preflight passed.
+  'nextrsAllowlist',
 ];
 
 /** What production must look like with these stages applied (a fresh copy). */

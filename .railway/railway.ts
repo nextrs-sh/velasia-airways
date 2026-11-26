@@ -62,18 +62,18 @@ const API_PRIVATE_URL = 'http://velasiaretailing-api.railway.internal:4010';
  * address in the DNS answer is non-public and outside these ranges; the environment is
  * dual-stack, so velasiaretailing-api.railway.internal has an A and an AAAA record.
  *
- * LIVE: what production has today (set in the dashboard on 2026-11-25). 10.0.0.0/8 is broader
- * than needed.
+ * LIVE: what production has today. Stage 4 (2026-11-26 07:47 UTC) narrowed it from the
+ * dashboard's fd12::/16,10.0.0.0/8 to the intended value; the gate now fails the old /8.
  *
  * INTENDED: the narrowed policy. Railway documents no private IPv4 range; 10.128.0.0/9 is an
  * observation of THIS environment (every API address seen so far, below), not a Railway
  * guarantee, and it may not hold for other projects. The IPv6 range is Railway's private
  * network (all observed AAAA answers are in fd12:382f:2f26:1::/64).
  *
- * The intended value is not applied by this file: `.railway/proposals/nextrs-allowlist.ts`
- * plans it as exactly one variable change, for a separate reviewed rollout.
+ * Before any API redeploy that might move it, compare the API's addresses with this range
+ * (`railway logs -s @velasia/web-nextrs --dns`) and add them to OBSERVED_API_ADDRESSES.
  */
-export const NEXTRS_NET_ALLOW_ADDR_LIVE = 'fd12::/16,10.0.0.0/8';
+export const NEXTRS_NET_ALLOW_ADDR_LIVE = 'fd12::/16,10.128.0.0/9';
 export const NEXTRS_NET_ALLOW_ADDR_INTENDED = 'fd12::/16,10.128.0.0/9';
 
 /**
@@ -165,7 +165,8 @@ export interface ProductionOptions {
 /**
  * Production today. Stage 1 (apiPersistence) was applied 2026-11-26 07:02 UTC and verified: the
  * volume exists now, so never plan or apply a file with `apiPersistence: false` (its plan
- * deletes the volume and the database on it). Stage 5 (deployPolicy) was applied 07:37 UTC.
+ * deletes the volume and the database on it). Stage 5 (deployPolicy) was applied 07:37 UTC and
+ * stage 4 (nextrsAllowlist) 07:47 UTC.
  */
 export const CURRENT: ProductionOptions = {
   nextrsNetAllowAddr: NEXTRS_NET_ALLOW_ADDR_LIVE,
