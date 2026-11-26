@@ -1,4 +1,4 @@
-# Railway benchmark readiness (Milestone 9)
+# Railway benchmark readiness (Milestone 9, updated in M9.3)
 
 This document is the method for the Node.js-versus-NextRS comparison on Railway, and it makes
 no performance claim. Every number in a report must come from a measured run, recorded as
@@ -35,8 +35,9 @@ reference `velasia-api` or shared tokens.
 **Option A: current production behaviour (what the first series used).** Real API clock, no
 `VELASIA_TODAY`. Only the runtime-focused, read-only workloads (`static-assets`, `rsc`) are
 comparable: they do not create offers, and `pair.mjs` refuses any run that does
-(`offersCreated > 0`). Offer and booking workloads cannot be made equivalent on a real clock:
-offers are reused for only 60 s, so `prewarm.mjs` cannot hold a warm state. Option A needs no
+(`offersCreated > 0`). Offer and booking workloads cannot be made equivalent: offers are reused
+for only 60 s of real time (pinned date or not, since M9.3), and `pair.mjs` refuses `offers` and
+`comparison`. Option A needs no
 production change. Record `main`'s commit and each service's image digest; both storefronts must
 run the same commit. Their different watch patterns mean an autodeploy can rebuild one and not
 the other (check `railway status --json`).
@@ -116,8 +117,8 @@ every measured run absorbs those fills.
 Notes:
 
 - `offers` and `comparison` add entries to the API's in-memory offer store (bounded to 20,000;
-  never written to TalaDB). See [the offer store](#the-shared-api-offer-store) for why the
-  series pre-warms it.
+  never written to TalaDB). Since M9.3 `pair.mjs` refuses both: see
+  [the offer store](#the-shared-api-offer-store-m93-real-time-expiry).
 - **`server-action` is refused by `pair.mjs`.** It replays a request captured by
   `benchmarks/node-baseline/lib/capture-action.mjs` (Playwright). Before it is enabled, a capture
   from each runtime must show three things. The request is a lookup with no credentials. The
@@ -137,46 +138,31 @@ Notes:
 - **Never attribute Fastify or TalaDB latency to a runtime.** End-to-end numbers include the
   shared API's time; the gate records it beside them (probe latency, API request counts).
 
-### The shared API offer store (pinned clock)
+### The shared API offer store (M9.3: real-time expiry)
 
-When `VELASIA_TODAY` is set (the M9 design and option B; **not production today**), it pins the API's clock (`apps/retailing-api/src/clock.ts`). "Now" is
-then a constant: midnight, Manila time, on that date. What follows was read from
-`apps/retailing-api/src/offers/retailing-service.ts` and `bounded-store.ts`:
+Until M9.3 a pinned `VELASIA_TODAY` froze the API's only clock, so an offer, once created, was
+reused for the life of the process, and one series pre-warm kept every offer key warm. That
+was a defect, fixed in M9.3 ([benchmark correctness](M9.3-BENCHMARK-CORRECTNESS.md)): the
+business date stays pinnable, but offer reuse (60 s) and validity (15 minutes) are measured in
+real time.
 
-| Question                        | Answer                                                                                                                                                                                                                                                                                                                                  |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Which clock controls expiry     | `clock.now()`, the pinned clock. Offer validity (`OFFER_VALIDITY_MINUTES`, 15) and the reuse window (`offerReuseMs`, 60 s) are both measured on it. "Now" never advances, so neither ever elapses.                                                                                                                                      |
-| Which endpoints create or reuse | Only `GET /v1/offers` (`searchOffers`). The storefront reaches it through `/api/offers` and the fare-comparison page (`/flights?…&fares=`), and the seeder and API workloads call it directly. Search (`/v1/flights`) creates no offers. `GET /v1/offers/:id` and `/price` only read.                                                   |
-| Cache key                       | `itineraryId \| adults \| children \| infants \| inventoryVersion \| demandShift`. The paired workloads always send 1/0/0. `demandShift` is 0 without a scenario header, and `inventoryVersion` is fixed for a pinned date. Reuse also needs the same eligible fare families, which depend on seats: read-only runs do not change them. |
-| Survives across rounds          | Yes, for the life of the API process. Offers live in memory only, never in TalaDB. A sweep runs on time only once; after that, entries leave only when the store passes 20,000 (oldest first). An API restart empties the store, and the series is then invalid anyway.                                                                 |
-| First runtime feeds the second  | Yes. Without a pre-warm, the first runtime to ask creates the offers (a priced creation) and the second reuses them (a map lookup). **The second runtime of a pair would get the cheaper path.**                                                                                                                                        |
-| Can every key be pre-warmed     | Yes. The keys are the fixture itineraries (at most 5 routes × 28 dates × 3, 327 in the M7 seed) × one party. [`prewarm.mjs`](../../benchmarks/railway/prewarm.mjs) requests each one through both storefronts, then verifies the warm state.                                                                                            |
+| Question                        | Answer (M9.3)                                                                                                                                                                                                |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Which clock controls expiry     | Real time (`clock.now()`), pinned or not. Sales cut-off and departure rules use business time (`clock.businessNow()`).                                                                                       |
+| Which endpoints create or reuse | Only `GET /v1/offers` (`searchOffers`): through `/api/offers`, the fare-comparison page (`/flights?…&fares=`), the seeder. Search (`/v1/flights`) creates none. `GET /v1/offers/:id` and `/price` only read. |
+| How long a warm state lasts     | One 60 s reuse window. A pair of 120 s runs cannot share it: the cache state differs between the two runtimes' runs.                                                                                         |
+| How the gate sees creation      | `velasia_memory_store_created_total{store="offers"}` (monotonic). Not the store size: a write that creates offers also sweeps expired ones, so the size can stay flat.                                       |
 
 What the benchmark does about it:
 
-1. **Pre-warm once per series** (`prewarm.mjs`, [below](#before-the-series-once)). Every
-   workload URL goes through Node.js, then through NextRS, rate-capped and sequential.
-2. **Verify the warm state.** `/api/offers` is read for every itinerary through both storefronts.
-   The offer IDs must be identical on both, and the API's offer store
-   (`velasia_memory_store_entries{store="offers"}`) must not grow during the check. `prewarm.json`
-   records the key count, the store sizes and these assumptions.
-3. **Check every measured run.** The gate reads the offer-store gauge in every window, and
-   `pair.mjs` refuses a run that created any offer (`offersCreated > 0`): the shared cache state
-   was not equivalent for the two runtimes. The pair is then `not-comparable` (exit 6). It is
-   not retried until it passes.
-4. Never reset TalaDB or restart the API inside a series. The warm store is part of the
-   series' state.
-
-This needs the **pinned** clock, which production does **not** have (`VELASIA_TODAY` is unset).
-With the system clock, offers are reused for only 60 s, so no pre-warm can hold. `prewarm.mjs`
-then reports `apiClockPinned: false` and refuses to verify. The offer workloads cannot be made
-equivalent that way, and `pair.mjs` refuses them as `offersCreated > 0`. The local stack runs
-on the system clock unless `VELASIA_TODAY` is set. The rehearsal showed both cases.
-
-The underlying behaviour is an application bug: a deterministic business date should not
-freeze elapsed-time expiry. It is recorded for a later fix in
-[known issue: pinned clock freezes offer expiry](known-issue-pinned-clock-offer-expiry.md). It is
-deliberately **not** fixed in the benchmark branch.
+1. **`offers` and `comparison` are refused by `pair.mjs`** until their cache state can be
+   controlled equally (separate equal API instances, or synchronized cold/warm experiments:
+   [offer-cache experiments](M9.3-BENCHMARK-CORRECTNESS.md#offer-cache-experiments-a-later-isolated-environment)).
+2. **Every other run must create no offer and no session** (`offersCreated` and
+   `sessionsCreated` from the counters). A run that does is `not-comparable` (exit 6). An API
+   without the counters (pre-M9.3) fails the gate closed.
+3. `prewarm.mjs` is a diagnostic only; nothing requires it.
+4. Never reset TalaDB or restart the API inside a series.
 
 ## Mandatory execution order
 
@@ -219,8 +205,9 @@ deliberately **not** fixed in the benchmark branch.
    searches and books nothing. The `manage-booking` and `my-trips` workloads need seeded
    bookings, which write to TalaDB: they wait for a separate, approved series on its own
    database file.
-5. **Pre-warm and verify the shared API:** `node benchmarks/railway/prewarm.mjs`. It must print
-   `VERIFIED` before any pair runs. Keep its `prewarm.json` with the series.
+5. **Deployment parity:** `pnpm railway:deployments --expect-sha <commit> --save … --deployments-out
+…` → OK ([M9.3 deployment parity](M9.3-DEPLOYMENT-PARITY.md)); `main` is frozen for the series.
+   (Until M9.1 this step was the offer pre-warm, which M9.3 made meaningless.)
 6. Run the series' first pair with `SERIES_START=1`. Its `api-baseline.json` is then the
    `SERIES_BASELINE` of every later pair.
 
@@ -271,7 +258,7 @@ pass.
 | Unchanged deployments           | The asset fingerprint and deployment ID before and after the pair are equal, and a fingerprint exists                            |
 | Same shared API process         | Every gate window has the baseline's process start time; the series baseline (`SERIES_BASELINE`) proves it across pairs          |
 | Equivalent warm-up and workload | Same scenario, `PICK=cycle`, same `WARMUP`, `DURATION`, `RATE`/`VUS` (by construction); with `RATE`, iteration counts within 2 % |
-| Equivalent shared cache         | `offersCreated = 0` in both runs (the series was pre-warmed); no sessions created; writer work at the idle rate                  |
+| Equivalent shared cache         | `offersCreated = 0` and `sessionsCreated = 0` in both runs (M9.3 counters); writer work at the idle rate                         |
 | No API saturation or errors     | Gate verdict `ok` for both runs: no sustained saturation, no 5xx / 429 / `RATE_LIMITED` from the API                             |
 | Recovery                        | `api-gate recover` succeeded after both runs                                                                                     |
 | Valid k6 evidence               | Summary present; all checks pass; `http_req_failed` 0; no 5xx/429; status counts cover every check; latency distribution         |
@@ -447,7 +434,7 @@ and the recovery logs. In addition, record:
 
 ## Cache warm-up
 
-The API is pre-warmed once per series ([above](#before-the-series-once)). Each storefront is
+The API's offer cache is not pre-warmed since M9.3 (no workload that depends on it is paired). Each storefront is
 warmed just before its own measured run (steps 3 and 8): the same scenario at the same VUs for
 `WARMUP`, so its in-memory caches, and NextRS's compression cache for `static-assets`, are warm.
 The warm-up and the measured run are back to back; there is no recovery wait between them.
@@ -466,7 +453,7 @@ latency and resource use at that rate, never a throughput ceiling:
 
 ```bash
 # inside the runner, after "Before the series"
-export FIXTURES=/tmp/fixtures.json DEPLOYMENTS=/tmp/deployments.json PREWARM=/tmp/velasia-bench/prewarm.json
+export FIXTURES=/tmp/fixtures.json DEPLOYMENTS=/tmp/deployments.json
 export API_CPU=1 API_MEMORY_MIB=768 RATE=2 WARMUP=30s DURATION=60s
 SERIES_START=1 node benchmarks/railway/pair.mjs static-assets 1      # round 1: Node.js first
 export SERIES_BASELINE=/tmp/velasia-bench/round-1/static-assets/api-baseline.json

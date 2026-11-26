@@ -125,6 +125,7 @@ export function createAccountService({
   store,
   inventory,
   now,
+  businessNow = now,
   config,
   log,
 }: {
@@ -134,7 +135,10 @@ export function createAccountService({
   orders: OrderRepository;
   store: OrderStore;
   inventory: () => Inventory;
+  /** Real time: account sessions and timestamps. */
   now: () => number;
+  /** Business time: which trips are upcoming or past (see `clock.ts`). */
+  businessNow?: () => number;
   config: AccountConfig;
   log?: { info(obj: object, msg: string): void; warn(obj: object, msg: string): void };
 }) {
@@ -430,7 +434,7 @@ export function createAccountService({
       page: number,
       pageSize: number,
     ): Promise<TripsResponse> {
-      const at = now();
+      const at = businessNow();
       const { items, total } = await orders.listForAccount(
         accountId,
         section as TripListSection,

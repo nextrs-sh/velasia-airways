@@ -9,7 +9,11 @@ import { seatsAvailable } from '../src/inventory/inventory';
 import { SEED, clock, inventory } from './helpers';
 
 const map = (flightId: string, takenSeatIds?: Set<string>): SeatMap =>
-  buildSeatMap(inventory.getInstance(flightId)!, { seed: SEED, now: clock.now(), takenSeatIds });
+  buildSeatMap(inventory.getInstance(flightId)!, {
+    seed: SEED,
+    now: clock.businessNow(),
+    takenSeatIds,
+  });
 
 describe('seat layouts', () => {
   it.each(AIRCRAFT.map((aircraft) => [aircraft.code, aircraft] as const))(
@@ -75,7 +79,7 @@ describe('seat availability', () => {
     const day = [...inventory.allInstances()].filter((instance) => instance.date === '2026-12-15');
     expect(day.length).toBeGreaterThan(50);
     for (const instance of day) {
-      const seatMap = buildSeatMap(instance, { seed: SEED, now: clock.now() });
+      const seatMap = buildSeatMap(instance, { seed: SEED, now: clock.businessNow() });
       for (const cabin of seatMap.cabins) {
         const seats = cabin.rows.flatMap((row) => row.seats.filter((seat) => seat !== null));
         expect(seats).toHaveLength(cabin.capacity);

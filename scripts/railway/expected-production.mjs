@@ -9,7 +9,7 @@
  *
  * Service names are Railway's resource identities here: a renamed service is a new resource.
  */
-export const EXPECTED = {
+const BASE = {
   project: 'velasia-airways',
   environment: 'production',
   repo: 'nextrs-sh/velasia-airways',
@@ -106,5 +106,110 @@ export const EXPECTED = {
     'NODE_ENV',
     'RAILWAY_RUN_UID',
     'RAILWAY_DEPLOYMENT_DRAINING_SECONDS',
+    'PORT',
   ],
+  /** No volume in production today (stage 1 adds one). */
+  volumes: [],
+  /** GitHub autodeploy waits for no CI (`checkSuites: false`; stage 5 turns it on). */
+  checkSuites: false,
 };
+
+/*
+ * M9.3 staged changes, recorded independently of .railway/railway.ts. Each stage says what
+ * production looks like once it is applied; a proposal is checked against BASE plus the
+ * applied stages plus its own stage, and nothing else may differ.
+ */
+export const STAGES = {
+  /** Stage 1: TalaDB on a volume; the API built from docker/Dockerfile.api. */
+  apiPersistence: {
+    title: 'API volume, Docker build, health check and draining window',
+    requires: [],
+    apply(e) {
+      const api = e.services['@velasia/retailing-api'];
+      api.builder = 'DOCKERFILE';
+      api.dockerfilePath = 'docker/Dockerfile.api';
+      delete api.buildCommand;
+      delete api.startCommand;
+      api.healthcheck = '/health/ready';
+      api.volume = 'velasia-api-data';
+      api.variables.push(
+        'NODE_ENV',
+        'PORT',
+        'RAILWAY_DEPLOYMENT_DRAINING_SECONDS',
+        'RAILWAY_DOCKERFILE_PATH',
+        'RAILWAY_RUN_UID',
+      );
+      api.literals = {
+        ...api.literals,
+        NODE_ENV: 'production',
+        PORT: '4010',
+        RAILWAY_DEPLOYMENT_DRAINING_SECONDS: '15',
+        RAILWAY_RUN_UID: '0',
+        TALADB_PATH: '/data/velasia.db',
+        TALADB_REQUIRE_VOLUME: 'enabled',
+      };
+      e.volumes = [{ name: 'velasia-api-data', mountPath: '/data', region: 'iad', sizeMB: 500 }];
+    },
+  },
+  /** Stage 2: both storefronts send the shared tokens (the API does not require them yet). */
+  clientTokens: {
+    title: 'Shared service and metrics tokens on both storefronts',
+    requires: [],
+    apply(e) {
+      for (const name of ['@velasia/web', '@velasia/web-nextrs']) {
+        e.services[name].variables.push('RETAILING_API_SERVICE_TOKEN', 'METRICS_TOKEN');
+      }
+    },
+  },
+  /** Stage 3: the API requires the service token, and the metrics token on /metrics. */
+  apiTokenEnforcement: {
+    title: 'Service-token and metrics-token enforcement on the API',
+    requires: ['apiPersistence', 'clientTokens'],
+    apply(e) {
+      e.services['@velasia/retailing-api'].variables.push(
+        'RETAILING_API_SERVICE_TOKEN',
+        'METRICS_TOKEN',
+      );
+    },
+  },
+  /** Stage 4: the narrowed NextRS outbound allowlist. */
+  nextrsAllowlist: {
+    title: 'Narrow the NextRS allowlist to fd12::/16,10.128.0.0/9',
+    requires: [],
+    apply(e) {
+      e.nextrsNetAllowAddrLive = 'fd12::/16,10.128.0.0/9';
+    },
+  },
+  /** Stage 5: autodeploys wait for CI; both storefronts watch the same paths. */
+  deployPolicy: {
+    title: 'Wait for CI; identical storefront watch patterns',
+    requires: [],
+    apply(e) {
+      e.checkSuites = true;
+      e.sameStorefrontWatchPatterns = true;
+    },
+  },
+};
+
+/**
+ * Stages applied to production and verified (in order). Changing this list is part of folding
+ * an applied stage into .railway/railway.ts (CURRENT must agree; check-iac.mjs checks it).
+ */
+export const APPLIED_STAGES = [];
+
+/** What production must look like with these stages applied (a fresh copy). */
+export function expectedFor(stages = APPLIED_STAGES) {
+  const e = structuredClone(BASE);
+  for (const name of stages) {
+    const stage = STAGES[name];
+    if (!stage) throw new Error(`unknown stage ${name}`);
+    stage.apply(e);
+  }
+  const live = new Set(Object.values(e.services).flatMap((s) => s.variables));
+  e.pendingVariables = e.pendingVariables.filter((v) => !live.has(v));
+  e.stages = [...stages];
+  return e;
+}
+
+/** Production as it is today. */
+export const EXPECTED = expectedFor(APPLIED_STAGES);

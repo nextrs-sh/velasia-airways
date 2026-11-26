@@ -33,6 +33,11 @@ export const REQUIRED_SAMPLES = [
   ['velasia_writer_queue_depth', {}],
   ['velasia_memory_store_entries', { store: 'offers' }],
   ['velasia_memory_store_entries', { store: 'sessions' }],
+  // M9.3: offers and sessions now expire in real time and are swept on writes, so a store's
+  // size can stay flat while entries are created. Only these monotonic counts show creation;
+  // an API without them (older than M9.3) fails closed here.
+  ['velasia_memory_store_created_total', { store: 'offers' }],
+  ['velasia_memory_store_created_total', { store: 'sessions' }],
 ];
 
 /**
@@ -207,7 +212,17 @@ export function windowStats(a, b, { probeRequests = 0, expectProbes = 0 } = {}) 
     if (delta(http) < 0) invalid.push(`${http} went down without a restart`);
   }
   const offerEntries = (s) => value(s, 'velasia_memory_store_entries', { store: 'offers' });
-  const sessionEntries = (s) => value(s, 'velasia_memory_store_entries', { store: 'sessions' });
+  const createdCount = (s, store) => value(s, 'velasia_memory_store_created_total', { store });
+  const created = (store) => createdCount(b, store) - createdCount(a, store);
+  if (!restartedInWindow) {
+    for (const store of ['offers', 'sessions']) {
+      if (created(store) < 0) {
+        invalid.push(
+          `velasia_memory_store_created_total{store="${store}"} went down without a restart`,
+        );
+      }
+    }
+  }
   const probes = b.probesMs ?? [];
   return {
     at: Number.isFinite(b.at) ? new Date(b.at).toISOString() : String(b.at),
@@ -231,8 +246,9 @@ export function windowStats(a, b, { probeRequests = 0, expectProbes = 0 } = {}) 
     sessionFlushFailures: delta('velasia_shopping_session_flush_failures_total'),
     dbFileBytes: sum(b, 'velasia_taladb_file_bytes'),
     offerStoreEntries: offerEntries(b),
-    offersCreated: offerEntries(b) - offerEntries(a),
-    sessionsCreated: sessionEntries(b) - sessionEntries(a),
+    // Counts, not store-size differences (M9.3): sweeps of expired entries cannot hide them.
+    offersCreated: created('offers'),
+    sessionsCreated: created('sessions'),
     probeP50Ms: percentile(probes, 50),
     probeMaxMs: probes.length ? Math.max(...probes) : undefined,
     invalid,
@@ -436,8 +452,10 @@ export function saturationSignals(w, limits = DEFAULT_SATURATION, baseline = und
  * Reported beside the verdict, for the caller to judge against the workload:
  * - `wrote`: the API's writer worked beyond its idle rate, or a shopping session was created
  *   (a read-only run changed shared state);
- * - `offersCreated`: new offers entered the shared offer store. With the series pre-warmed
- *   (prewarm.mjs) a read-only offer workload creates none; any is a cache-state difference.
+ * - `offersCreated`: offers the API created during the run (`velasia_memory_store_created_total`).
+ *   Any is a difference in the shared offer cache's state between the two runtimes. Since
+ *   M9.3 offers expire in real time (60 s reuse, 15 min validity), so no pre-warm keeps them
+ *   warm across a series: offer workloads are excluded from pairs (pair-lib.mjs).
  */
 export function classifyRun(
   windows,

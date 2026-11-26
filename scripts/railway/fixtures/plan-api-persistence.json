@@ -1,0 +1,127 @@
+{
+  "ok": true,
+  "command": "plan",
+  "file": ".railway/proposals/api-persistence.ts",
+  "currentEnvironment": {
+    "projectId": "<project-id>",
+    "projectName": "velasia-airways",
+    "environmentId": "<environment-id>",
+    "environmentName": "production",
+    "configEtag": "<etag>",
+    "pr": null
+  },
+  "changeSet": {
+    "changes": [
+      {
+        "summary": "Create volume velasia-api-data",
+        "severity": "safe",
+        "kind": "resource.create"
+      },
+      {
+        "summary": "Set variable @velasia/retailing-api.NODE_ENV",
+        "severity": "safe",
+        "kind": "variable.set"
+      },
+      {
+        "summary": "Set variable @velasia/retailing-api.PORT",
+        "severity": "safe",
+        "kind": "variable.set"
+      },
+      {
+        "summary": "Set variable @velasia/retailing-api.RAILWAY_DEPLOYMENT_DRAINING_SECONDS",
+        "severity": "safe",
+        "kind": "variable.set"
+      },
+      {
+        "summary": "Set variable @velasia/retailing-api.RAILWAY_DOCKERFILE_PATH",
+        "severity": "safe",
+        "kind": "variable.set"
+      },
+      {
+        "summary": "Set variable @velasia/retailing-api.RAILWAY_RUN_UID",
+        "severity": "safe",
+        "kind": "variable.set"
+      },
+      {
+        "summary": "Update @velasia/retailing-api build.buildCommand, build.builder, build.dockerfilePath",
+        "severity": "safe",
+        "kind": "resource.update"
+      },
+      {
+        "summary": "Update @velasia/retailing-api deploy.healthcheckPath, deploy.healthcheckTimeout, deploy.startCommand",
+        "severity": "safe",
+        "kind": "resource.update"
+      },
+      {
+        "summary": "Update @velasia/retailing-api volumeAttachments.velasia-api-data.mountPath, volumeAttachments.velasia-api-data.volume",
+        "severity": "safe",
+        "kind": "resource.update"
+      }
+    ]
+  },
+  "diagnostics": [],
+  "currentGraph": {
+    "resources": [
+      {
+        "address": "service.@velasia/retailing-api",
+        "type": "service",
+        "name": "@velasia/retailing-api"
+      },
+      {
+        "address": "service.@velasia/web",
+        "type": "service",
+        "name": "@velasia/web"
+      },
+      {
+        "address": "service.@velasia/web-nextrs",
+        "type": "service",
+        "name": "@velasia/web-nextrs"
+      }
+    ]
+  },
+  "desiredGraph": {
+    "resources": [
+      {
+        "address": "volume.velasia-api-data",
+        "type": "volume",
+        "name": "velasia-api-data",
+        "config": {
+          "region": "iad",
+          "sizeMB": 500
+        }
+      },
+      {
+        "address": "service.@velasia/retailing-api",
+        "type": "service",
+        "name": "@velasia/retailing-api",
+        "volumeAttachments": {
+          "velasia-api-data": {
+            "volume": "volume.velasia-api-data",
+            "mountPath": "/data"
+          }
+        }
+      },
+      {
+        "address": "service.@velasia/web",
+        "type": "service",
+        "name": "@velasia/web"
+      },
+      {
+        "address": "service.@velasia/web-nextrs",
+        "type": "service",
+        "name": "@velasia/web-nextrs"
+      }
+    ]
+  },
+  "stagedPatch": null,
+  "applyResult": null,
+  "deploymentId": null,
+  "stagedPatchId": null,
+  "variablePolicy": {
+    "managed": true,
+    "ignore": [],
+    "default": true,
+    "ignoredCount": 0,
+    "byPattern": {}
+  }
+}

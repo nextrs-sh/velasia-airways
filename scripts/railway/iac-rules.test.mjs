@@ -293,7 +293,7 @@ test('offline change detection covers deletes, creates and service updates', () 
   });
   const key = (c) => `${c.kind} ${c.target}`;
   assert.deepEqual(definitionChanges(base, changed).map(key).sort(), [
-    'resource.create volume.data',
+    'resource.create data',
     `resource.delete ${NEXTRS}`,
     `resource.update ${NODE}`,
     `variable.delete ${API}.VELASIA_TAG`,

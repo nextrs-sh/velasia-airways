@@ -1,6 +1,11 @@
 # TalaDB persistence migration (plan, not executed)
 
-**Status: proposed, awaiting owner approval. Blocked on one decision (the current data, below).**
+**M9.3 update: the owner chose option A** (discard the demo database, start on an empty
+volume). The decision, the simplified one-redeploy runbook, the stage-1 proposal and the local
+validation are in [M9.3-TALADB-PERSISTENCE-VALIDATION.md](M9.3-TALADB-PERSISTENCE-VALIDATION.md),
+which supersedes the runbook below (kept as the M9.2 analysis).
+
+**M9.2 status: proposed, awaiting owner approval. Blocked on one decision (the current data, below).**
 Nothing in this document has been run against production. M9.2 did not reset TalaDB, delete
 records, redeploy the API, attach a volume or change the API's build.
 

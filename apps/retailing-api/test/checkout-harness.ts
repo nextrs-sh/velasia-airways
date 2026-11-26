@@ -34,12 +34,21 @@ export interface ManualClock {
   advance(ms: number): void;
 }
 
-/** "Today" pinned like the E2E suite, with a "now" the test can move forward. */
+/**
+ * "Today" pinned like the E2E suite, with a "now" the test can move forward. `advance` moves
+ * business time and real time together (time passing on the unpinned system clock); the M9.3
+ * clock tests move real time alone with `createClock(today, realNow)`.
+ */
 export function manualClock(today = TODAY): ManualClock {
   const base = createClock(today);
   let offset = 0;
   return {
-    clock: { today: () => base.today(), now: () => base.now() + offset, pinned: true },
+    clock: {
+      today: () => base.today(),
+      businessNow: () => base.businessNow() + offset,
+      now: () => base.businessNow() + offset,
+      pinned: true,
+    },
     advance(ms) {
       offset += ms;
     },

@@ -79,6 +79,8 @@ function fakeApi(state) {
       'velasia_writer_task_seconds_count 0',
       'velasia_memory_store_entries{store="offers"} 1200',
       'velasia_memory_store_entries{store="sessions"} 0',
+      'velasia_memory_store_created_total{store="offers"} 1200',
+      'velasia_memory_store_created_total{store="sessions"} 0',
     ];
     const broken = state.breakAfter && state.scrapes > state.breakAfter;
     res.end(lines.filter((l) => !(broken && l.startsWith('process_cpu'))).join('\n'));

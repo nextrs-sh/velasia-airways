@@ -30,6 +30,7 @@ const HOLD_THRESHOLD = 24;
 
 export interface SeatMapOptions {
   seed: string;
+  /** Business time (`clock.businessNow()`): the seat map closes at the sales cut-off. */
   now: number;
   /** Test scenario: seats that other travellers have just taken (moved, not added). */
   takenSeatIds?: ReadonlySet<string>;

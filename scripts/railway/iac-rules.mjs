@@ -8,6 +8,11 @@
  * Current-state parity (`checkCurrentState`) means: the file says what production is, nothing
  * more. Future desired changes (a volume, tokens, a pinned clock, a Docker-built API, explicit
  * CPU/memory limits) fail here on purpose; they belong in a proposal with its own plan.
+ *
+ * M9.3: "production" is `expectedFor(stages)` (expected-production.mjs): the M9.2 facts plus
+ * the applied stages, and for a proposal also its own stage. A stage can make a volume, the
+ * API's Docker build and health check, token references or `checkSuites` expected; anything a
+ * stage does not name still fails.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -79,10 +84,25 @@ export function checkCurrentState(definition, options) {
       `service ${name} is not in production: an apply would CREATE it (renames are create + delete)`,
     );
   }
+  const volumes = expected.volumes ?? [];
   for (const r of resources) {
+    if (r.type === 'service') continue;
+    const want = r.type === 'volume' ? volumes.find((v) => v.name === r.name) : undefined;
     check(
-      r.type === 'service',
-      `${r.address ?? r.type}: only the three existing services are expected (production has no ${r.type})`,
+      Boolean(want),
+      `${r.address ?? r.type}: only the three existing services${volumes.length ? ' and the API volume' : ''} are expected (production has no ${r.type} ${r.name ?? ''})`,
+    );
+    if (want) {
+      check(
+        r.config?.region === want.region && r.config?.sizeMB === want.sizeMB,
+        `volume ${r.name}: must be ${want.sizeMB} MB in ${want.region} (found ${r.config?.sizeMB} MB in ${r.config?.region})`,
+      );
+    }
+  }
+  for (const v of volumes) {
+    check(
+      resources.some((r) => r.type === 'volume' && r.name === v.name),
+      `volume ${v.name} is live but missing here: an apply would DELETE it, and the TalaDB data with it`,
     );
   }
 
@@ -112,10 +132,37 @@ export function checkCurrentState(definition, options) {
       s.deploy?.limitOverride === undefined || s.deploy.limitOverride === null,
       `${name}: no CPU/memory limitOverride (production uses the plan default; an override is a change)`,
     );
+    const attachments = Object.values(s.volumeAttachments ?? {});
+    if (want.volume) {
+      const v = volumes.find((x) => x.name === want.volume);
+      check(
+        attachments.length === 1 &&
+          attachments[0].volume === `volume.${want.volume}` &&
+          attachments[0].mountPath === v?.mountPath,
+        `${name}: must mount exactly volume ${want.volume} at ${v?.mountPath} (found ${JSON.stringify(attachments)})`,
+      );
+    } else {
+      check(
+        attachments.length === 0,
+        `${name}: no volume attachment (production has no volume; attaching one is the TalaDB migration)`,
+      );
+    }
     check(
-      !s.volumeAttachments || Object.keys(s.volumeAttachments).length === 0,
-      `${name}: no volume attachment (production has no volume; attaching one is the TalaDB migration)`,
+      (s.source?.checkSuites ?? false) === (expected.checkSuites ?? false),
+      `${name}: checkSuites (wait for CI) must be ${expected.checkSuites ?? false} (found ${s.source?.checkSuites ?? false})`,
     );
+    if (want.role === 'api') {
+      check(
+        (s.deploy?.healthcheckPath ?? null) === (want.healthcheck ?? null),
+        `${name}: deploy health check must be ${want.healthcheck ?? 'none'} (found ${s.deploy?.healthcheckPath ?? 'none'})`,
+      );
+    }
+    for (const [variable, value] of Object.entries(want.literals ?? {})) {
+      check(
+        literal(s, variable) === value,
+        `${name}: ${variable} must be ${value} (found ${literal(s, variable) ?? 'not a literal'})`,
+      );
+    }
     check(
       s.networking?.privateNetworkEndpoint === want.privateNetworkEndpoint,
       `${name}: private network endpoint must stay ${want.privateNetworkEndpoint}`,
@@ -242,9 +289,9 @@ export function checkCurrentState(definition, options) {
       }
     }
     if (!same(a.build?.watchPatterns ?? [], b.build?.watchPatterns ?? [])) {
-      warnings.push(
-        `storefront watch patterns differ (${JSON.stringify(a.build?.watchPatterns ?? [])} / ${JSON.stringify(b.build?.watchPatterns ?? [])}): an autodeploy can rebuild one runtime and not the other`,
-      );
+      const message = `storefront watch patterns differ (${JSON.stringify(a.build?.watchPatterns ?? [])} / ${JSON.stringify(b.build?.watchPatterns ?? [])}): an autodeploy can rebuild one runtime and not the other`;
+      if (expected.sameStorefrontWatchPatterns) failures.push(message);
+      else warnings.push(message);
     }
   }
   for (const s of fronts) {
@@ -348,11 +395,12 @@ export function definitionChanges(base, proposal) {
       if (!same(va[v], vb[v])) changes.push({ kind: 'variable.set', target: `${name}.${v}` });
     }
   }
+  // By name, as the plan's summaries name them ("Create volume velasia-api-data").
   const others = (d) =>
     (d?.resources ?? [])
       .flat()
       .filter((r) => r.type !== 'service')
-      .map((r) => r.address);
+      .map((r) => r.name ?? r.address);
   for (const addr of others(proposal)) {
     if (!others(base).includes(addr)) changes.push({ kind: 'resource.create', target: addr });
   }

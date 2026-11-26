@@ -13,15 +13,26 @@ export const PAIRED_WORKLOADS = new Set([
   'rsc',
   'flight-search',
   'route-handler',
-  'offers',
-  'comparison',
   'manage-booking',
   'my-trips',
 ]);
 
+/**
+ * Milestone 9.3: workloads whose answers depend on the shared API's offer cache. Offers now
+ * expire in real time (60 s reuse window, 15-minute validity), so the cache is cold, warm or
+ * half-warm depending on when each runtime's run happens, and no series pre-warm can hold it
+ * equal across 120 s runs. Until the cache state can be controlled equivalently (separate
+ * identical API instances, or synchronized cold/warm experiments: readiness doc, "Offer-cache
+ * experiments"), they are not part of a paired comparison.
+ */
+export const OFFER_CACHE_WORKLOADS = new Set(['offers', 'comparison']);
+
 /** Why a workload is refused by pair.mjs (undefined = allowed). */
 export function refusedWorkload(scenario) {
   if (PAIRED_WORKLOADS.has(scenario)) return undefined;
+  if (OFFER_CACHE_WORKLOADS.has(scenario)) {
+    return `'${scenario}' depends on the shared API's offer cache, whose state cannot be made equal for both runtimes (offers expire in real time since M9.3; docs: Offer-cache experiments)`;
+  }
   if (scenario === 'server-action') {
     return "'server-action' is excluded until a captured request is shown to be read-only and deterministic (docs: Server Actions)";
   }
@@ -232,7 +243,7 @@ export function pairProblems(evidence, { k6Limits = DEFAULT_K6_LIMITS, expectNex
       if (run.gate.wrote) problems.push(`${runtime}: the run made the API write`);
       if (run.gate.totals?.offersCreated !== 0) {
         problems.push(
-          `${runtime}: ${run.gate.totals?.offersCreated ?? '?'} offers created (shared offer cache not equivalent; pre-warm the series)`,
+          `${runtime}: ${run.gate.totals?.offersCreated ?? '?'} offers created (the shared offer cache changed during the run)`,
         );
       }
     }

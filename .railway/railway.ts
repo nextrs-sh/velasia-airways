@@ -38,7 +38,7 @@
  *     storefronts are equal by construction. An explicit override plans as a change.
  *   - GitHub autodeploy and its watch patterns' effects, volume backups, usage limits.
  */
-import { defineRailway, github, project, service } from 'railway/iac';
+import { defineRailway, github, project, service, volume, type RailwayContext } from 'railway/iac';
 
 export const PROJECT = 'velasia-airways';
 export const REPO = 'nextrs-sh/velasia-airways';
@@ -90,28 +90,118 @@ export const OBSERVED_API_ADDRESSES = [
   { address: 'fd12:382f:2f26:1:3000:1b6:5a89:5d16', seen: '2026-11-26' },
 ] as const;
 
+/*
+ * M9.3 staged changes. Each is OFF in CURRENT (production today) and turned on by exactly one
+ * proposal in .railway/proposals/, which the plan gate holds to its exact change set. After an
+ * approved stage is applied and verified, its flag becomes true here and in
+ * scripts/railway/expected-production.mjs (APPLIED_STAGES), and its proposal is deleted.
+ * docs/deployment/M9.3-RAILWAY-RELEASE-READINESS.md has the order and the gates.
+ */
+
+/** Stage 1: the API's persistent volume (the TalaDB database lives on it). */
+export const API_VOLUME = {
+  name: 'velasia-api-data',
+  mountPath: '/data',
+  region: REGION,
+  /** Trial plan maximum (0.5 GB); the database is a few MB. */
+  sizeMB: 500,
+} as const;
+
+/** Stage 5: what each image is built from, so a change rebuilds every runtime it affects. */
+const STOREFRONT_WATCH = [
+  '/apps/web/**',
+  '/apps/retailing-api/**',
+  '/packages/**',
+  '/Dockerfile.node',
+  '/Dockerfile.nextrs',
+  '/docker/nextrs/**',
+  '/package.json',
+  '/pnpm-lock.yaml',
+  '/pnpm-workspace.yaml',
+];
+const API_WATCH = [
+  '/apps/retailing-api/**',
+  '/packages/config/**',
+  '/packages/contracts/**',
+  '/packages/observability/**',
+  '/docker/Dockerfile.api',
+  '/docker/api/**',
+  '/package.json',
+  '/pnpm-lock.yaml',
+  '/pnpm-workspace.yaml',
+];
+
 export interface ProductionOptions {
-  /** NextRS's NEXTRS_NET_ALLOW_ADDR. */
+  /** NextRS's NEXTRS_NET_ALLOW_ADDR (stage 4 narrows it). */
   nextrsNetAllowAddr: string;
+  /**
+   * Stage 1: the API is built from docker/Dockerfile.api (entrypoint docker/api/start.sh: the
+   * volume guard and the uid drop run), mounts API_VOLUME at /data, and has a deploy health
+   * check on /health/ready and a 15 s draining window for its graceful shutdown.
+   */
+  apiPersistence: boolean;
+  /** Stage 2: both storefronts reference the shared service and metrics tokens. */
+  clientTokens: boolean;
+  /** Stage 3: the API references them too, so it requires them (after stages 1 and 2). */
+  apiTokenEnforcement: boolean;
+  /**
+   * Stage 5: GitHub autodeploys wait for CI (`checkSuites`), and both storefronts watch the
+   * same paths, so one merge redeploys both from the same commit or neither.
+   */
+  deployPolicy: boolean;
 }
 
 /** Production today. */
-export const CURRENT: ProductionOptions = { nextrsNetAllowAddr: NEXTRS_NET_ALLOW_ADDR_LIVE };
+export const CURRENT: ProductionOptions = {
+  nextrsNetAllowAddr: NEXTRS_NET_ALLOW_ADDR_LIVE,
+  apiPersistence: false,
+  clientTokens: false,
+  apiTokenEnforcement: false,
+  deployPolicy: false,
+};
 
-export function production(options: ProductionOptions = CURRENT) {
-  const source = github(REPO, { branch: DEPLOY_BRANCH, checkSuites: false });
+/** Secrets: shared variables (created by the owner outside Git), referenced, never values. */
+function tokens(ctx: RailwayContext) {
+  return {
+    RETAILING_API_SERVICE_TOKEN: ctx.shared.RETAILING_API_SERVICE_TOKEN,
+    METRICS_TOKEN: ctx.shared.METRICS_TOKEN,
+  };
+}
+
+export function production(options: ProductionOptions, ctx: RailwayContext) {
+  const source = github(REPO, { branch: DEPLOY_BRANCH, checkSuites: options.deployPolicy });
+  const data = volume(API_VOLUME.name, { region: API_VOLUME.region, sizeMB: API_VOLUME.sizeMB });
+
+  // Railpack (today) or the Docker image (stage 1).
+  const apiBuild = options.apiPersistence
+    ? {
+        build: {
+          builder: 'DOCKERFILE' as const,
+          buildEnvironment: 'V3' as const,
+          dockerfilePath: 'docker/Dockerfile.api',
+          buildCommand: '',
+          watchPatterns: options.deployPolicy ? API_WATCH : ['/apps/retailing-api/**'],
+        },
+        start: '',
+        healthcheck: '/health/ready',
+        healthcheckTimeout: 120,
+        volumeMounts: { [API_VOLUME.mountPath]: data },
+      }
+    : {
+        // Railpack (Nixpacks' successor), NOT docker/Dockerfile.api: docker/api/start.sh (volume
+        // guard, uid drop) does not run, and the API runs TypeScript through tsx.
+        build: {
+          builder: 'RAILPACK' as const,
+          buildEnvironment: 'V3' as const,
+          buildCommand: 'pnpm --filter @velasia/retailing-api build',
+          watchPatterns: options.deployPolicy ? API_WATCH : ['/apps/retailing-api/**'],
+        },
+        start: 'pnpm --filter @velasia/retailing-api start',
+      };
 
   const api = service(SERVICES.api, {
     source,
-    // Railpack (Nixpacks' successor), NOT docker/Dockerfile.api: docker/api/start.sh (volume
-    // guard, uid drop) does not run, and the API runs TypeScript through tsx.
-    build: {
-      builder: 'RAILPACK',
-      buildEnvironment: 'V3',
-      buildCommand: 'pnpm --filter @velasia/retailing-api build',
-      watchPatterns: ['/apps/retailing-api/**'],
-    },
-    start: 'pnpm --filter @velasia/retailing-api start',
+    ...apiBuild,
     replicas: { [REGION]: 1 },
     networking: { privateNetworkEndpoint: 'velasiaretailing-api' },
     // No volume, no deploy health check, no NODE_ENV, no VELASIA_TODAY, no tokens: all live
@@ -151,6 +241,22 @@ export function production(options: ProductionOptions = CURRENT) {
       VELASIA_HTTP_BIND: '127.0.0.1',
       VELASIA_HTTP_PORT: '8080',
       VELASIA_TAG: 'local',
+      ...(options.apiPersistence
+        ? {
+            // The image sets NODE_ENV too; explicit here so the production guards are visible.
+            NODE_ENV: 'production',
+            // Railway's health check and routing use PORT; the API listens on 4010.
+            PORT: '4010',
+            // Time between SIGTERM and SIGKILL: above SHUTDOWN_TIMEOUT_MS (10 s), so a graceful
+            // shutdown (drain, flush, close TalaDB) always finishes. Railway's default is 0.
+            RAILWAY_DEPLOYMENT_DRAINING_SECONDS: '15',
+            RAILWAY_DOCKERFILE_PATH: 'docker/Dockerfile.api',
+            // Railway mounts the volume root-owned. start.sh, started as root, gives /data to
+            // uid 1000 and drops privileges before the API runs; the API never runs as root.
+            RAILWAY_RUN_UID: '0',
+          }
+        : {}),
+      ...(options.apiTokenEnforcement ? tokens(ctx) : {}),
     },
   });
 
@@ -169,8 +275,9 @@ export function production(options: ProductionOptions = CURRENT) {
       buildEnvironment: 'V3',
       dockerfilePath: 'Dockerfile.node',
       buildCommand: '',
-      // Differs from NextRS (none): a change outside apps/web/ redeploys NextRS but not Node.js.
-      watchPatterns: ['/apps/web/**'],
+      // Until stage 5 this differs from NextRS (none): a change outside apps/web/ redeploys
+      // NextRS but not Node.js, so the two can serve different commits.
+      watchPatterns: options.deployPolicy ? STOREFRONT_WATCH : ['/apps/web/**'],
     },
     start: '',
     networking: { privateNetworkEndpoint: 'velasiaweb' },
@@ -180,22 +287,31 @@ export function production(options: ProductionOptions = CURRENT) {
       SITE_URL: 'https://velasiaweb-production.up.railway.app',
       // Inert: read only by the image build's throwaway API, and Dockerfile.node sets its own.
       RETAILING_API_START_TIMEOUT_MS: '60000',
+      ...(options.clientTokens ? tokens(ctx) : {}),
     },
   });
 
   const nextrs = service(SERVICES.nextrs, {
     ...storefront,
-    build: { builder: 'DOCKERFILE', buildEnvironment: 'V3', dockerfilePath: 'Dockerfile.nextrs' },
+    build: {
+      builder: 'DOCKERFILE',
+      buildEnvironment: 'V3',
+      dockerfilePath: 'Dockerfile.nextrs',
+      ...(options.deployPolicy ? { watchPatterns: STOREFRONT_WATCH } : {}),
+    },
     networking: { privateNetworkEndpoint: 'velasiaweb-nextrs' },
     env: {
       RAILWAY_DOCKERFILE_PATH: 'Dockerfile.nextrs',
       RETAILING_API_URL: API_PRIVATE_URL,
       SITE_URL: 'https://velasiaweb-nextrs-production.up.railway.app',
       NEXTRS_NET_ALLOW_ADDR: options.nextrsNetAllowAddr,
+      // NextRS passes these to JavaScript with --js-env only when set (docker/nextrs/start.sh).
+      ...(options.clientTokens ? tokens(ctx) : {}),
     },
   });
 
-  return project(PROJECT, { resources: [api, node, nextrs] });
+  const resources = options.apiPersistence ? [data, api, node, nextrs] : [api, node, nextrs];
+  return project(PROJECT, { resources });
 }
 
-export default defineRailway(() => production(CURRENT));
+export default defineRailway((ctx) => production(CURRENT, ctx));

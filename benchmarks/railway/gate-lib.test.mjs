@@ -30,6 +30,8 @@ function scrape(at, o = {}) {
     rateLimited: 0,
     offers: 1200,
     sessions: 3,
+    offersCreated: 5000,
+    sessionsCreated: 40,
     rss: 150000000,
     probes: [],
     drop: [],
@@ -59,6 +61,8 @@ function scrape(at, o = {}) {
     'velasia_writer_task_seconds_bucket{le="+Inf"} 7',
     `velasia_memory_store_entries{store="offers"} ${v.offers}`,
     `velasia_memory_store_entries{store="sessions"} ${v.sessions}`,
+    `velasia_memory_store_created_total{store="offers"} ${v.offersCreated}`,
+    `velasia_memory_store_created_total{store="sessions"} ${v.sessionsCreated}`,
   ]
     .filter((line) => !v.drop.some((name) => line.includes(name)))
     .join('\n');
@@ -165,6 +169,7 @@ test('missing metrics make a scrape and its window invalid, never zero', () => {
     'process_start_time_seconds',
     'velasia_writer_queue_depth',
     'velasia_memory_store_entries',
+    'velasia_memory_store_created_total',
   ]) {
     const b = scrape(10_000, { drop: [name] });
     assert.ok(
@@ -246,10 +251,34 @@ test('classifyRun counts offers and sessions created in the shared stores', () =
   const baseline = baselineFrom(scrape(0), scrape(10_000), scrape(20_000));
   const reused = [windowStats(scrape(0), scrape(2000, { workload: 400 }))];
   assert.equal(classifyRun(reused, baseline).totals.offersCreated, 0);
-  const created = [windowStats(scrape(0), scrape(2000, { offers: 1300 }))];
+  const created = [windowStats(scrape(0), scrape(2000, { offers: 1300, offersCreated: 5100 }))];
   assert.equal(classifyRun(created, baseline).totals.offersCreated, 100);
-  const session = [windowStats(scrape(0), scrape(2000, { sessions: 4 }))];
+  const session = [windowStats(scrape(0), scrape(2000, { sessions: 4, sessionsCreated: 41 }))];
   assert.equal(classifyRun(session, baseline).wrote, true);
+});
+
+test('classifyRun (M9.3): creation hidden by a sweep of expired entries is still counted', () => {
+  const baseline = baselineFrom(scrape(0), scrape(10_000), scrape(20_000));
+  // 100 offers created while 100 expired ones were swept: the store size did not change.
+  const swept = [windowStats(scrape(0), scrape(2000, { offers: 1200, offersCreated: 5100 }))];
+  assert.equal(classifyRun(swept, baseline).totals.offersCreated, 100);
+  // Shopping sessions the same way: the store shrank, yet one was created (a write).
+  const session = [windowStats(scrape(0), scrape(2000, { sessions: 1, sessionsCreated: 41 }))];
+  assert.equal(classifyRun(session, baseline).totals.sessionsCreated, 1);
+  assert.equal(classifyRun(session, baseline).wrote, true);
+  // The store shrinking (expiry) is not "negative creation".
+  const shrank = [windowStats(scrape(0), scrape(2000, { offers: 900 }))];
+  assert.equal(classifyRun(shrank, baseline).totals.offersCreated, 0);
+});
+
+test('classifyRun (M9.3): an API without the created counters fails closed', () => {
+  const old = scrape(2000, { drop: ['velasia_memory_store_created_total'] });
+  assert.ok(snapshotProblems(old).some((p) => p.includes('velasia_memory_store_created_total')));
+  const w = windowStats(scrape(0), old);
+  assert.ok(w.invalid.length > 0);
+  // A count that goes down without a restart is a broken source, not zero.
+  const down = windowStats(scrape(0), scrape(2000, { offersCreated: 4000 }));
+  assert.ok(down.invalid.some((r) => r.includes('went down without a restart')));
 });
 
 test('classifyRun: background writer work with no workload traffic is not a write by the run', () => {

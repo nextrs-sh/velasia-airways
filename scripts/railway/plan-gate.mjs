@@ -27,7 +27,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { EXPECTED } from './expected-production.mjs';
+import { APPLIED_STAGES, EXPECTED, STAGES, expectedFor } from './expected-production.mjs';
 import { evaluatePlan, planArgs, sanitizePlan, summarize } from './plan-gate-lib.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
@@ -87,10 +87,28 @@ if (values['plan-json']) {
   }
 }
 
-// 3. Expected changes: none for the baseline; a proposal lists its own.
+// 3. Expected changes: none for the baseline; a proposal lists its own, and is judged against
+//    production with its stage applied (M9.3). A proposal whose prerequisite stages are not
+//    applied yet fails: stages are applied one at a time, in order, never together.
 const mod = await import(pathToFileURL(file).href);
 const expectedChanges = mod.expectedChanges ?? [];
-const result = evaluatePlan(plan, { expected: EXPECTED, expectedChanges });
+let expected = EXPECTED;
+const blocked = [];
+if (mod.stage !== undefined) {
+  if (!STAGES[mod.stage]) {
+    console.error(`plan gate: unknown stage ${mod.stage}`);
+    process.exit(1);
+  }
+  for (const s of STAGES[mod.stage].requires) {
+    if (!APPLIED_STAGES.includes(s)) blocked.push(`prerequisite stage ${s} is not applied yet`);
+  }
+  expected = expectedFor([...APPLIED_STAGES, mod.stage]);
+}
+const result = evaluatePlan(plan, { expected, expectedChanges });
+if (blocked.length) {
+  result.problems.push(...blocked);
+  result.ok = false;
+}
 const sanitized = sanitizePlan(plan);
 const report = summarize({ file: shown, result, sanitized, generatedAt: new Date().toISOString() });
 console.log(`\n${report}`);

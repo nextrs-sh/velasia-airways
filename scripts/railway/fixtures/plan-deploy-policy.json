@@ -1,0 +1,97 @@
+{
+  "ok": true,
+  "command": "plan",
+  "file": ".railway/proposals/deploy-policy.ts",
+  "currentEnvironment": {
+    "projectId": "<project-id>",
+    "projectName": "velasia-airways",
+    "environmentId": "<environment-id>",
+    "environmentName": "production",
+    "configEtag": "<etag>",
+    "pr": null
+  },
+  "changeSet": {
+    "changes": [
+      {
+        "summary": "Update @velasia/retailing-api source.checkSuites",
+        "severity": "safe",
+        "kind": "resource.update"
+      },
+      {
+        "summary": "Update @velasia/retailing-api build.watchPatterns",
+        "severity": "safe",
+        "kind": "resource.update"
+      },
+      {
+        "summary": "Update @velasia/web source.checkSuites",
+        "severity": "safe",
+        "kind": "resource.update"
+      },
+      {
+        "summary": "Update @velasia/web build.watchPatterns",
+        "severity": "safe",
+        "kind": "resource.update"
+      },
+      {
+        "summary": "Update @velasia/web-nextrs source.checkSuites",
+        "severity": "safe",
+        "kind": "resource.update"
+      },
+      {
+        "summary": "Update @velasia/web-nextrs build.watchPatterns",
+        "severity": "safe",
+        "kind": "resource.update"
+      }
+    ]
+  },
+  "diagnostics": [],
+  "currentGraph": {
+    "resources": [
+      {
+        "address": "service.@velasia/retailing-api",
+        "type": "service",
+        "name": "@velasia/retailing-api"
+      },
+      {
+        "address": "service.@velasia/web",
+        "type": "service",
+        "name": "@velasia/web"
+      },
+      {
+        "address": "service.@velasia/web-nextrs",
+        "type": "service",
+        "name": "@velasia/web-nextrs"
+      }
+    ]
+  },
+  "desiredGraph": {
+    "resources": [
+      {
+        "address": "service.@velasia/retailing-api",
+        "type": "service",
+        "name": "@velasia/retailing-api"
+      },
+      {
+        "address": "service.@velasia/web",
+        "type": "service",
+        "name": "@velasia/web"
+      },
+      {
+        "address": "service.@velasia/web-nextrs",
+        "type": "service",
+        "name": "@velasia/web-nextrs"
+      }
+    ]
+  },
+  "stagedPatch": null,
+  "applyResult": null,
+  "deploymentId": null,
+  "stagedPatchId": null,
+  "variablePolicy": {
+    "managed": true,
+    "ignore": [],
+    "default": true,
+    "ignoredCount": 0,
+    "byPattern": {}
+  }
+}

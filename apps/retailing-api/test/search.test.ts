@@ -12,7 +12,7 @@ import {
 import { createFlightService } from '../src/services/flights';
 import { SEED, TODAY, clock, inventory, query } from './helpers';
 
-const now = clock.now();
+const now = clock.businessNow();
 const leg = (overrides: Partial<Parameters<typeof searchLeg>[2]> = {}) =>
   searchLeg(inventory, now, {
     direction: 'outbound',
@@ -152,7 +152,7 @@ describe('cabins and capacity', () => {
   });
 
   it('stops selling flights that leave within the sales cutoff', () => {
-    const midday = createClock(TODAY).now() + 12 * 3_600_000;
+    const midday = createClock(TODAY).businessNow() + 12 * 3_600_000;
     const result = findSellable(inventory, midday, {
       origin: 'MNL',
       destination: 'CEB',

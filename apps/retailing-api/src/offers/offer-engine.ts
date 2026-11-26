@@ -44,8 +44,10 @@ export function inventoryVersionFor(referenceDate: string): string {
 
 /** Inputs that shape a price beyond the itinerary and the party. */
 export interface PricingContext {
-  /** Epoch ms used for validity and sales cut-off. */
+  /** Real time, epoch ms: offer validity and every timestamp (see `clock.ts`). */
   now: number;
+  /** Business time, epoch ms: sales cut-off and departure rules (pinned by `VELASIA_TODAY`). */
+  businessNow: number;
   inventoryVersion: string;
   /** Simulated demand change in bands (test scenarios only; 0 otherwise). */
   demandShift: number;
@@ -105,9 +107,9 @@ export function familyEligibility(
   candidate: Candidate,
   family: FareFamilyDefinition,
   passengers: PassengerCounts,
-  context: Pick<PricingContext, 'now' | 'soldOut'>,
+  context: Pick<PricingContext, 'now' | 'businessNow' | 'soldOut'>,
 ): Eligibility {
-  const problem = itineraryProblem(candidate, context.now);
+  const problem = itineraryProblem(candidate, context.businessNow);
   if (problem) {
     return { ok: false, reason: 'itinerary-unavailable', message: ITINERARY_MESSAGES[problem] };
   }
@@ -257,7 +259,7 @@ export interface FamilyAvailability {
 export function evaluateFamilies(
   candidate: Candidate,
   passengers: PassengerCounts,
-  context: Pick<PricingContext, 'now' | 'soldOut'>,
+  context: Pick<PricingContext, 'now' | 'businessNow' | 'soldOut'>,
 ): FamilyAvailability {
   const result: FamilyAvailability = { eligible: [], unavailable: [], availability: 'available' };
   for (const code of FARE_FAMILY_ORDER) {
@@ -277,7 +279,7 @@ export function evaluateFamilies(
           ),
         );
     result.availability =
-      itineraryProblem(candidate, context.now) ??
+      itineraryProblem(candidate, context.businessNow) ??
       (seatsLeft === 0 ? 'sold-out' : 'insufficient-seats');
   }
   return result;
@@ -297,7 +299,7 @@ export function offerItinerary(
 export function offerStatus(
   offer: StoredOffer,
   candidate: Candidate | null,
-  context: Pick<PricingContext, 'now' | 'soldOut' | 'inventoryVersion'>,
+  context: Pick<PricingContext, 'now' | 'businessNow' | 'soldOut' | 'inventoryVersion'>,
 ): OfferStatus {
   if (isExpired(offer, context)) return 'EXPIRED';
   if (!candidate) return 'UNAVAILABLE';

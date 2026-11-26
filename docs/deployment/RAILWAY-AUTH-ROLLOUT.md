@@ -1,6 +1,11 @@
 # Service authentication rollout (plan, not executed)
 
-**Status: proposed, awaiting owner approval.** Production has no `RETAILING_API_SERVICE_TOKEN`
+**M9.3 update:** the client and enforcement steps are now the proposals
+`.railway/proposals/auth-clients.ts` (stage 2) and `auth-enforce.ts` (stage 3, gated on the
+persistence stage), and the metrics bearer checks are constant-time (the finding at the end):
+[M9.3-API-SECURITY-VALIDATION.md](M9.3-API-SECURITY-VALIDATION.md).
+
+**M9.2 status: proposed, awaiting owner approval.** Production has no `RETAILING_API_SERVICE_TOKEN`
 and no `METRICS_TOKEN` (verified 2026-11-26). M9.2 adds tests and this plan only; no variable
 was created or changed.
 

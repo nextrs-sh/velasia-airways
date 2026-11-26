@@ -75,7 +75,7 @@ export function createFlightService({ clock, seed, horizonDays, ledger }: Flight
 
     search(query: FlightSearchQuery): ServiceResult<FlightSearchResponse> {
       const inv = current();
-      const now = clock.now();
+      const now = clock.businessNow();
       const shared = {
         passengers: query.passengers,
         cabin: query.cabin,
@@ -146,7 +146,7 @@ export function createFlightService({ clock, seed, horizonDays, ledger }: Flight
       let availability: ItineraryAvailability = 'available';
       if (candidate.segments.some((segment) => segment.status === 'cancelled')) {
         availability = 'cancelled';
-      } else if (first.departureUtc < clock.now() + SALES_CUTOFF_MINUTES * 60_000) {
+      } else if (first.departureUtc < clock.businessNow() + SALES_CUTOFF_MINUTES * 60_000) {
         availability = 'departed';
       } else if (minSeats === 0) availability = 'sold-out';
       else if (minSeats < totalSeated(query.passengers)) availability = 'insufficient-seats';
@@ -184,7 +184,7 @@ export function createFlightService({ clock, seed, horizonDays, ledger }: Flight
 
     calendar(query: FareCalendarQuery): FareCalendarResponse {
       const inv = current();
-      return { data: fareCalendar(inv, clock.now(), query), meta: meta(inv) };
+      return { data: fareCalendar(inv, clock.businessNow(), query), meta: meta(inv) };
     },
 
     routes(filter: RouteListQuery = {}): NetworkRoute[] {
@@ -210,7 +210,7 @@ export function createFlightService({ clock, seed, horizonDays, ledger }: Flight
       if (cached !== undefined) return cached;
       // Same rules as a one-adult, direct, economy search on each date — without
       // building full itineraries for every day of the horizon.
-      const cutoff = clock.now() + SALES_CUTOFF_MINUTES * 60_000;
+      const cutoff = clock.businessNow() + SALES_CUTOFF_MINUTES * 60_000;
       let lowest: number | null = null;
       for (const instance of inv.onRoute(origin, destination)) {
         if (instance.departureUtc < cutoff || seatsAvailable(instance, 'economy') < 1) continue;
