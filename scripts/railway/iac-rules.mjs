@@ -144,7 +144,9 @@ export function checkCurrentState(definition, options) {
     } else {
       check(
         attachments.length === 0,
-        `${name}: no volume attachment (production has no volume; attaching one is the TalaDB migration)`,
+        volumes.length
+          ? `${name}: no volume attachment (only the API mounts ${volumes.map((v) => v.name).join(', ')})`
+          : `${name}: no volume attachment (production has no volume; attaching one is the TalaDB migration)`,
       );
     }
     check(

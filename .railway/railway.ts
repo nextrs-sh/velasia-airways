@@ -151,10 +151,14 @@ export interface ProductionOptions {
   deployPolicy: boolean;
 }
 
-/** Production today. */
+/**
+ * Production today. Stage 1 (apiPersistence) was applied 2026-11-26 07:02 UTC and verified: the
+ * volume exists now, so never plan or apply a file with `apiPersistence: false` (its plan
+ * deletes the volume and the database on it).
+ */
 export const CURRENT: ProductionOptions = {
   nextrsNetAllowAddr: NEXTRS_NET_ALLOW_ADDR_LIVE,
-  apiPersistence: false,
+  apiPersistence: true,
   clientTokens: false,
   apiTokenEnforcement: false,
   deployPolicy: false,
