@@ -4,12 +4,7 @@ import { test } from 'node:test';
 import { createRailwayContext, preserve, project } from 'railway/iac';
 import * as baseline from '../../.railway/railway.ts';
 import { EXPECTED } from './expected-production.mjs';
-import {
-  checkCurrentState,
-  definitionChanges,
-  evaluate,
-  servicesOf,
-} from './iac-rules.mjs';
+import { checkCurrentState, definitionChanges, evaluate, servicesOf } from './iac-rules.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
 const sdk = { createRailwayContext, project };
