@@ -1,0 +1,137 @@
+{
+  "ok": true,
+  "command": "plan",
+  "file": ".railway/railway.ts",
+  "currentEnvironment": {
+    "projectId": "<project-id>",
+    "projectName": "velasia-airways",
+    "environmentId": "<environment-id>",
+    "environmentName": "production",
+    "configEtag": "<etag>",
+    "pr": null
+  },
+  "changeSet": {
+    "changes": [
+      {
+        "summary": "Create service velasia-api",
+        "severity": "safe",
+        "kind": "resource.create",
+        "details": null
+      },
+      {
+        "summary": "Create volume velasia-api-data",
+        "severity": "safe",
+        "kind": "resource.create",
+        "details": null
+      },
+      {
+        "summary": "Create service velasia-node",
+        "severity": "safe",
+        "kind": "resource.create",
+        "details": null
+      },
+      {
+        "summary": "Create service velasia-nextrs",
+        "severity": "safe",
+        "kind": "resource.create",
+        "details": null
+      },
+      {
+        "summary": "Delete service @velasia/retailing-api",
+        "severity": "destructive",
+        "kind": "resource.delete",
+        "details": null
+      },
+      {
+        "summary": "Delete service @velasia/web",
+        "severity": "destructive",
+        "kind": "resource.delete",
+        "details": null
+      },
+      {
+        "summary": "Delete service @velasia/web-nextrs",
+        "severity": "destructive",
+        "kind": "resource.delete",
+        "details": null
+      }
+    ]
+  },
+  "diff": "+ Create service velasia-api\n+ Create volume velasia-api-data\n+ Create service velasia-node\n+ Create service velasia-nextrs\n- Delete service @velasia/retailing-api\n- Delete service @velasia/web\n- Delete service @velasia/web-nextrs",
+  "diagnostics": [],
+  "currentGraph": {
+    "project": {
+      "name": "velasia-airways"
+    },
+    "resources": [
+      {
+        "address": "service.@velasia/retailing-api",
+        "type": "service",
+        "name": "@velasia/retailing-api"
+      },
+      {
+        "address": "service.@velasia/web",
+        "type": "service",
+        "name": "@velasia/web",
+        "networking": {
+          "serviceDomains": {
+            "velasiaweb-production.up.railway.app": {}
+          }
+        }
+      },
+      {
+        "address": "service.@velasia/web-nextrs",
+        "type": "service",
+        "name": "@velasia/web-nextrs",
+        "networking": {
+          "serviceDomains": {
+            "velasiaweb-nextrs-production.up.railway.app": {}
+          }
+        }
+      }
+    ]
+  },
+  "desiredGraph": {
+    "project": {
+      "name": "velasia-airways"
+    },
+    "resources": [
+      {
+        "address": "service.velasia-api",
+        "type": "service",
+        "name": "velasia-api",
+        "volumeAttachments": {
+          "velasia-api-data": {
+            "mountPath": "/data",
+            "volume": "volume.velasia-api-data"
+          }
+        }
+      },
+      {
+        "address": "volume.velasia-api-data",
+        "type": "volume",
+        "name": "velasia-api-data"
+      },
+      {
+        "address": "service.velasia-node",
+        "type": "service",
+        "name": "velasia-node"
+      },
+      {
+        "address": "service.velasia-nextrs",
+        "type": "service",
+        "name": "velasia-nextrs"
+      }
+    ]
+  },
+  "stagedPatch": null,
+  "applyResult": null,
+  "deploymentId": null,
+  "stagedPatchId": null,
+  "variablePolicy": {
+    "managed": true,
+    "ignore": [],
+    "default": true,
+    "ignoredCount": 0,
+    "byPattern": {}
+  }
+}

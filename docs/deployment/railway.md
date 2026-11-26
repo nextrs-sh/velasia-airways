@@ -3,27 +3,42 @@
 Railway is the active cloud target (Milestone 9). The DigitalOcean App Platform guide is kept
 as an [archived alternative](digitalocean-app-platform.md).
 
-The deployment is one Railway project, `velasia-airways`, with three services. All three build
-from this repository's production Dockerfiles, with the repository root as the build context.
+## Production today (M9.2, verified 2026-11-26)
 
-| Service          | Runtime                                   | Dockerfile              | Network                         | Port | Deploy health check          |
-| ---------------- | ----------------------------------------- | ----------------------- | ------------------------------- | ---- | ---------------------------- |
-| `velasia-node`   | Official Next.js server (Node.js 24.18.0) | `Dockerfile.node`       | Public (generated HTTPS domain) | 8080 | `/api/internal/health/ready` |
-| `velasia-nextrs` | NextRS, embedded V8, no Node.js           | `Dockerfile.nextrs`     | Public (generated HTTPS domain) | 8080 | `/api/internal/health/ready` |
-| `velasia-api`    | Fastify retailing API + TalaDB            | `docker/Dockerfile.api` | Private network only, volume    | 4010 | `/health/ready`              |
+One Railway project, `velasia-airways`, environment `production`, region `iad` (US East). Three
+services deploy from `main` with GitHub autodeploy on. Verified with read-only commands only; see
+[RAILWAY-PRODUCTION-DRIFT.md](RAILWAY-PRODUCTION-DRIFT.md).
 
-The configuration lives in code:
+| Service                  | Runtime                                   | Build                            | Network                                                      | Deploy health check          |
+| ------------------------ | ----------------------------------------- | -------------------------------- | ------------------------------------------------------------ | ---------------------------- |
+| `@velasia/web`           | Official Next.js server (Node.js 24.18.0) | `Dockerfile.node`                | Public: `velasiaweb-production.up.railway.app` (port 8080)   | `/api/internal/health/ready` |
+| `@velasia/web-nextrs`    | NextRS, embedded V8, no Node.js           | `Dockerfile.nextrs`              | Public: `velasiaweb-nextrs-production.up.railway.app` (8080) | `/api/internal/health/ready` |
+| `@velasia/retailing-api` | Fastify retailing API + TalaDB (via tsx)  | **Railpack** (`pnpm --filter …`) | Private only: `velasiaretailing-api.railway.internal:4010`   | **none**                     |
 
-- [`.railway/railway.ts`](../../.railway/railway.ts): Railway Infrastructure as Code.
-- Variables: [railway-environment-variables.md](railway-environment-variables.md).
-- Design and risks: [railway-architecture.md](railway-architecture.md).
-- What was validated locally: [railway-validation-report.md](railway-validation-report.md).
-- Cloud benchmark preparation: [railway-benchmark-readiness.md](railway-benchmark-readiness.md).
+- One replica each; CPU/memory are the plan default (2 vCPU / 1 GB each, no override).
+- **No volume.** The API's TalaDB file (`/data/velasia.db`) is on the container's ephemeral disk
+  and is lost on every API redeploy ([migration plan](TALADB-PERSISTENCE-MIGRATION.md)).
+- **No `VELASIA_TODAY`** (real clock), **no service token, no metrics token**
+  ([auth rollout](RAILWAY-AUTH-ROLLOUT.md)).
+- NextRS allowlist `fd12::/16,10.0.0.0/8` (narrowing proposed:
+  [reconciliation](RAILWAY-IAC-RECONCILIATION.md#proposal-narrow-the-nextrs-allowlist)).
 
-> **Status: prepared, not deployed.** No Railway account was used. No project, service, volume
-> or domain exists, and `railway config plan` / `apply` have never run. Platform facts come from
-> docs.railway.com, read on 2026-11-21.
->
+[`.railway/railway.ts`](../../.railway/railway.ts) describes this state, and its
+`railway config plan` is a complete no-op. **Before any Railway change, read
+[RAILWAY-CHANGE-SAFETY.md](RAILWAY-CHANGE-SAFETY.md).**
+
+> **The rest of this guide is the original Milestone 9 design**, written before anything was
+> deployed: a fresh project in Singapore, services `velasia-node` / `velasia-nextrs` /
+> `velasia-api` deploying `deploy/railway`, a Docker-built API on a 500 MB volume, a pinned clock
+> and shared tokens. Production was created differently (above). Keep the guide as the target
+> architecture and for its platform facts, but **never run its procedure against the existing
+> project**: an apply of that design deletes the three live services.
+
+Related: [railway-environment-variables.md](railway-environment-variables.md) (design
+variables), [railway-architecture.md](railway-architecture.md),
+[railway-validation-report.md](railway-validation-report.md) (local validation),
+[railway-benchmark-readiness.md](railway-benchmark-readiness.md).
+
 > **NextRS:** `Dockerfile.nextrs` pins `@nextrs/cli@0.1.0-rc.2`, which brings gzip, static byte
 > ranges and `VELASIA_DEPLOYMENT_ID` support ([upgrade notes](#nextrs-rc2-upgrade)).
 >
@@ -98,7 +113,9 @@ cannot use them, and Railway stops reading them on 2026-12-01. This repository h
 
 | Command                      | Changes Railway? | Use                                                                                       |
 | ---------------------------- | ---------------- | ----------------------------------------------------------------------------------------- |
-| `pnpm railway:check`         | no (offline)     | Typecheck, then evaluate the file as the CLI does and check this deployment's invariants  |
+| `pnpm railway:check`         | no (offline)     | Typecheck, then evaluate the file as the CLI does and check current-state parity (CI)     |
+| `pnpm test:railway`          | no (offline)     | Rule, CIDR-policy and plan-gate tests (CI)                                                |
+| `pnpm railway:plan-gate`     | no (read-only)   | Plan + destructive-change gate ([change safety](RAILWAY-CHANGE-SAFETY.md)). Needs login   |
 | `railway config plan`        | no (read-only)   | Diff against the linked environment. Needs `railway login` + a linked project             |
 | `railway config pull --json` | no (local)       | Import the live configuration, e.g. to confirm the field names of dashboard-made settings |
 | `railway config apply`       | **yes**          | Owner only, after reviewing a plan. Never with `--yes`/`--json` unattended                |
@@ -108,6 +125,11 @@ cannot use them, and Railway stops reading them on 2026-12-01. This repository h
 > file does not describe.
 
 ### IaC coverage
+
+> **Design-era table.** It describes the M9 design file. The reconciled file sets only what
+> production has: no `limitOverride` (an explicit one plans as a change), no volume, no restart or
+> draining overrides, no shared-variable references. Generated domains, GitHub autodeploy, volume
+> backups and usage limits still have no IaC form.
 
 The services are described with the documented IaC fields where they exist. A few settings
 exist only in the SDK's TypeScript types (`railway@3.17.0`, marked `[SDK]` in the file). Some
@@ -135,6 +157,9 @@ If the first plan shows that the CLI ignores or rejects an `[SDK]` key, delete t
 `railway.ts` and set it in the dashboard instead. Note that change in this table.
 
 ## Deployment procedure
+
+> **Fresh-project procedure for the M9 design. Not for the existing production project.**
+> Production changes go through [RAILWAY-CHANGE-SAFETY.md](RAILWAY-CHANGE-SAFETY.md).
 
 Do this only with the owner's authorization: every numbered step after 1 creates or changes
 Railway resources. The order matters. The API comes first, the storefronts need their
@@ -288,15 +313,36 @@ Keep benchmark traffic off until this passes; see
 
 `NEXTRS_NET_ALLOW_ADDR` is therefore:
 
-- `fd12::/16`: Railway's documented private IPv6 range, used by every environment;
+- `fd12::/16`: Railway's private IPv6 network (every observed AAAA answer is inside
+  `fd12:382f:2f26:1::/64`);
 - **plus the environment's private IPv4 range**, which Railway does not document.
 
-Nothing broader is allowed. `pnpm railway:check` rejects ranges wider than /16, including
-`10.0.0.0/8`.
+**Policy (M9.2, `scripts/railway/cidr.mjs`, enforced by `pnpm railway:check`):** IPv4 ranges
+inside `10.0.0.0/8` and narrower than it (prefix 9 or longer), IPv6 ranges inside `fd00::/8` with
+prefix 16 or longer, both families present, no host bits, and every observed API address covered.
+
+The original M9 rule (nothing wider than /16) was wrong for Railway: the API's private IPv4 is
+not stable inside a /16. Three API deployments got `10.228.244.185`, `10.146.207.192` and
+`10.236.48.211`, three different /16 blocks, all inside **`10.128.0.0/9`**. A /16 allowlist broke
+NextRS on the next API redeploy (2026-11-25 15:19 UTC). The owner then set `10.0.0.0/8`, which
+works but is broader than needed. The intended policy is `fd12::/16,10.128.0.0/9`. It is an
+**observation of this environment, not a Railway guarantee**, and it is not applied yet
+([proposal](RAILWAY-IAC-RECONCILIATION.md#proposal-narrow-the-nextrs-allowlist)).
 
 ### Private IPv4 range
 
-Read it from the running environment once the API is up (step 5):
+**Without a shell (preferred, read-only):** the storefronts' DNS logs show every answer for the
+API's private name:
+
+```bash
+railway logs -s @velasia/web-nextrs --dns -n 1000 | grep velasiaretailing-api
+```
+
+The NextRS startup log line (below) shows the same addresses together with the allowlist in force.
+Compare every address against the allowlist **before** an API redeploy and after it, because the
+IPv4 address changes on each API redeploy.
+
+Design-era method (needs `railway ssh`, i.e. a shell inside a production container):
 
 ```bash
 railway ssh --service velasia-api                 # a shell in the API container
@@ -340,6 +386,12 @@ it is redeployed. During the smoke phase:
 The failure is explicit: there is no fallback to Node.js and no allow-all.
 
 ## TalaDB on a Railway volume
+
+> **Not deployed.** Production has no volume, and the API is built with Railpack, so
+> `docker/api/start.sh` and its `TALADB_REQUIRE_VOLUME` guard never run. The database lives on
+> ephemeral storage. This section is the target design. The migration to it is planned in
+> [TALADB-PERSISTENCE-MIGRATION.md](TALADB-PERSISTENCE-MIGRATION.md) and needs the owner's
+> approval.
 
 | Fact (Railway docs)                                                                        | What this deployment does                                                                                                                                                                                                                                                                                                                                                       |
 | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
