@@ -11,6 +11,45 @@ execution order part of the method, not a detail: a run on one runtime changes t
 caches and load for the next. The [mandatory execution order](#mandatory-execution-order) below
 is therefore a rule, and [`benchmarks/railway/`](../../benchmarks/railway/) enforces most of it.
 
+## What production actually runs (M9.2, verified 2026-11-26)
+
+Parts of this method were written for the original M9 design. Production differs
+([RAILWAY-PRODUCTION-DRIFT.md](RAILWAY-PRODUCTION-DRIFT.md)):
+
+| Design assumption                                          | Production today                                                                     |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Services `velasia-node` / `velasia-nextrs` / `velasia-api` | `@velasia/web` / `@velasia/web-nextrs` / `@velasia/retailing-api`                    |
+| Branch `deploy/railway`, autodeploy off                    | `main`, GitHub autodeploy **on** (Node.js watches `/apps/web/**`, NextRS everything) |
+| Region Singapore                                           | `iad` (US East)                                                                      |
+| `VELASIA_TODAY` pinned                                     | **Unset**: real clock                                                                |
+| Service token, metrics token                               | **Not configured**                                                                   |
+| Docker-built API on a volume                               | Railpack-built API, **no volume** (TalaDB on ephemeral disk)                         |
+| API host `velasia-api.railway.internal`                    | `velasiaretailing-api.railway.internal:4010`                                         |
+| Explicit limits                                            | Plan default, 2 vCPU / 1 GB for each service (equal; no override)                    |
+
+Where a section below says otherwise, the table wins. The same holds for runner variables that
+reference `velasia-api` or shared tokens.
+
+### Two benchmark options
+
+**Option A: current production behaviour (what the first series used).** Real API clock, no
+`VELASIA_TODAY`. Only the runtime-focused, read-only workloads (`static-assets`, `rsc`) are
+comparable: they do not create offers, and `pair.mjs` refuses any run that does
+(`offersCreated > 0`). Offer and booking workloads cannot be made equivalent on a real clock:
+offers are reused for only 60 s, so `prewarm.mjs` cannot hold a warm state. Option A needs no
+production change. Record `main`'s commit and each service's image digest; both storefronts must
+run the same commit. Their different watch patterns mean an autodeploy can rebuild one and not
+the other (check `railway status --json`).
+
+**Option B: a deterministic test environment (future, not built).** A separate Railway
+environment (not `production`) with a fixed fictional business date (`VELASIA_TODAY`), its own
+TalaDB file on a volume, and its own variables. The end-to-end class needs it. Before it is
+useful, the [pinned-clock known issue](known-issue-pinned-clock-offer-expiry.md) should be
+fixed: the business date may be fixed, but the offer cache's expiry must follow real elapsed
+time. Today both use `clock.now()`, so a pinned date also freezes the 60 s reuse window. That
+fix is tracked separately and is deliberately not part of the infrastructure reconciliation.
+Production's clock semantics do not change for either option.
+
 ## Preconditions (all must hold before any load)
 
 1. **Functional validation passed on Railway.** That is step 8 of [railway.md](railway.md), with
@@ -29,9 +68,9 @@ is therefore a rule, and [`benchmarks/railway/`](../../benchmarks/railway/) enfo
 
    | What                 | Requirement                                    |
    | -------------------- | ---------------------------------------------- |
-   | Source               | Same commit on `deploy/railway`                |
+   | Source               | Same commit on `main` (production)             |
    | API                  | One API; neither storefront has its own        |
-   | Fixtures             | `INVENTORY_SEED`, `VELASIA_TODAY`              |
+   | Fixtures             | `INVENTORY_SEED`; `VELASIA_TODAY` (option B)   |
    | Deployment-ID policy | Same on both                                   |
    | Region               | One region                                     |
    | CPU / memory limits  | Identical                                      |
@@ -100,7 +139,7 @@ Notes:
 
 ### The shared API offer store (pinned clock)
 
-On Railway, `VELASIA_TODAY` pins the API's clock (`apps/retailing-api/src/clock.ts`). "Now" is
+When `VELASIA_TODAY` is set (the M9 design and option B; **not production today**), it pins the API's clock (`apps/retailing-api/src/clock.ts`). "Now" is
 then a constant: midnight, Manila time, on that date. What follows was read from
 `apps/retailing-api/src/offers/retailing-service.ts` and `bounded-store.ts`:
 
@@ -128,7 +167,7 @@ What the benchmark does about it:
 4. Never reset TalaDB or restart the API inside a series. The warm store is part of the
    series' state.
 
-This needs the **pinned** clock, which Railway has (`VELASIA_TODAY` in `.railway/railway.ts`).
+This needs the **pinned** clock, which production does **not** have (`VELASIA_TODAY` is unset).
 With the system clock, offers are reused for only 60 s, so no pre-warm can hold. `prewarm.mjs`
 then reports `apiClockPinned: false` and refuses to verify. The offer workloads cannot be made
 equivalent that way, and `pair.mjs` refuses them as `offersCreated > 0`. The local stack runs
@@ -393,8 +432,8 @@ and the recovery logs. In addition, record:
 
 | Item                         | Where to read it                                                                                                                                         |
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source commit                | `git rev-parse deploy/railway`; Railway deployment details (commit)                                                                                      |
-| Node.js version              | `/app/node-version.txt` in velasia-node (`railway ssh --service velasia-node cat /app/node-version.txt`): 24.18.0 in the image                           |
+| Source commit                | The commit of each service's active deployment (`railway status --json`); production deploys `main`                                                      |
+| Node.js version              | `/app/node-version.txt` in @velasia/web (`railway ssh --service @velasia/web cat /app/node-version.txt`): 24.18.0 in the image                           |
 | Next.js version              | `/app/next-version.txt` (both images): `next 16.4.6`                                                                                                     |
 | NextRS version + binary hash | `/app/nextrs-version.txt`; `/usr/share/doc/nextrs/BUILD-INFO.json`; image label `dev.nextrs.binary-sha256`                                               |
 | Docker image identifiers     | Railway deployment → image digest, for each service, at the start and the end of the series                                                              |
@@ -457,9 +496,10 @@ this milestone.
 - Use one replica per service and never autoscale.
 - Delete the runner right after the session; never leave it running.
 - Set a usage limit before a run (minimum hard limit $10).
-- Between sessions, stop the deployments (`railway down`, see
-  [railway.md](railway.md#stopping-and-deleting-trial-resources)). The API volume and its data
-  are kept.
+- Between sessions, stop the deployments only on purpose (`railway down`, see
+  [railway.md](railway.md#stopping-and-deleting-trial-resources)). Production has **no
+  volume**: stopping or redeploying the API loses its TalaDB data
+  ([migration plan](TALADB-PERSISTENCE-MIGRATION.md)).
 
 ## Publishing
 

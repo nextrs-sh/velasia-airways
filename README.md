@@ -29,18 +29,18 @@ ticket, and no money ever moves.
 
 ## Milestone status
 
-| Milestone | Scope                                                            | Status                    |
-| --------- | ---------------------------------------------------------------- | ------------------------- |
-| 1         | Monorepo foundation, premium storefront, search, destinations    | ✅ Done                   |
-| 2         | Flight inventory, dynamic search, indicative pricing             | ✅ Done                   |
-| 2.5       | Velasia Airways rebrand: identity, design system, API, docs      | ✅ Done                   |
-| 3         | Dynamic offers, fare families, shopping sessions                 | ✅ Done                   |
-| 4         | Traveller details, seat maps, ancillaries, booking review        | ✅ Done                   |
-| 5         | Checkout, durable orders (TalaDB), simulated payments            | ✅ Done                   |
-| 6         | Manage Booking, order servicing, demo accounts, My Trips         | ✅ Done                   |
-| 7         | Production hardening, Docker, observability, Node.js baseline    | ✅ Done                   |
-| 8         | Dual runtime Docker images (Node.js, NextRS), App Platform prep  | ✅ Done                   |
-| 9         | Railway deployment preparation (IaC, private API, TalaDB volume) | 🟡 Prepared, not deployed |
+| Milestone | Scope                                                           | Status                                                      |
+| --------- | --------------------------------------------------------------- | ----------------------------------------------------------- |
+| 1         | Monorepo foundation, premium storefront, search, destinations   | ✅ Done                                                     |
+| 2         | Flight inventory, dynamic search, indicative pricing            | ✅ Done                                                     |
+| 2.5       | Velasia Airways rebrand: identity, design system, API, docs     | ✅ Done                                                     |
+| 3         | Dynamic offers, fare families, shopping sessions                | ✅ Done                                                     |
+| 4         | Traveller details, seat maps, ancillaries, booking review       | ✅ Done                                                     |
+| 5         | Checkout, durable orders (TalaDB), simulated payments           | ✅ Done                                                     |
+| 6         | Manage Booking, order servicing, demo accounts, My Trips        | ✅ Done                                                     |
+| 7         | Production hardening, Docker, observability, Node.js baseline   | ✅ Done                                                     |
+| 8         | Dual runtime Docker images (Node.js, NextRS), App Platform prep | ✅ Done                                                     |
+| 9         | Railway deployment (IaC, private API, benchmark)                | 🟡 Deployed; IaC reconciled (M9.2), volume + tokens pending |
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) and the milestone reports:
 [M1](docs/MILESTONE-1-REPORT.md), [M2](docs/MILESTONE-2-REPORT.md),
@@ -293,10 +293,13 @@ docker compose -f compose.dual-runtime.yaml up --build -d --wait   # :8081 Node.
 pnpm test:parity                                                   # the same checks against both
 ```
 
-**Cloud target: Railway (Milestone 9, prepared, not deployed).** One project with three
-services: the two storefronts on generated HTTPS domains, and the API on the private network only,
-with TalaDB on a Railway volume. They are described in [`.railway/railway.ts`](.railway/railway.ts)
-and checked offline with `pnpm railway:check`.
+**Cloud target: Railway (Milestone 9, deployed).** One project in `iad` with three services
+deploying `main`: the two storefronts on generated HTTPS domains, and the API on the private network
+only. [`.railway/railway.ts`](.railway/railway.ts) describes production as it runs (M9.2: its plan is
+a no-op) and is checked offline with `pnpm railway:check`. TalaDB is **not yet on a volume**, and
+the service tokens are not configured. Both are planned changes, not deployed:
+[drift report](docs/deployment/RAILWAY-PRODUCTION-DRIFT.md),
+[change safety](docs/deployment/RAILWAY-CHANGE-SAFETY.md).
 
 - Guide: [docs/deployment/railway.md](docs/deployment/railway.md).
 - Also: [architecture](docs/deployment/railway-architecture.md),
