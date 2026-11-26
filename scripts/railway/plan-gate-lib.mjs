@@ -13,10 +13,15 @@
  *   - a production service is never deleted (no exception exists);
  *   - every change must be listed in `expectedChanges` (kind + target): a create, an update of
  *     service settings, and any variable change are failures otherwise;
+ *   - a `resource.update` must also stay within its entry's `fields` (M9.3): an update of the
+ *     right service that touches another setting (region, replicas, limits, …) fails, and an
+ *     entry without `fields` accepts no update at all;
  *   - a destructive change also needs `allowDestructive: true` on its expected entry;
  *   - every expected change must be present (a proposal that no longer matches is stale);
- *   - independently of the change list, the desired graph must keep every current service,
- *     declare no volume, and give the API no public domain.
+ *   - independently of the change list, the desired graph must keep every current service and
+ *     every current volume, declare exactly the volumes production is expected to have (none
+ *     before M9.3 stage 1; `expected.volumes`), attach them only where expected, and give the API
+ *     no public domain.
  */
 
 export const KNOWN_KINDS = new Set([
@@ -57,6 +62,20 @@ export function changeTarget(change) {
     return m[1];
   if ((m = /^Update (\S+)/.exec(s))) return m[1];
   return null;
+}
+
+/**
+ * The settings a `resource.update` summary names ("Update X build.builder, deploy.startCommand"):
+ * the plan JSON carries no structured details for updates, so this is the only field list.
+ * Null when the summary has none (the gate then fails closed).
+ */
+export function changeFields(change) {
+  const m = /^Update \S+ (.+)$/.exec(String(change?.summary ?? ''));
+  if (!m) return null;
+  return m[1]
+    .split(',')
+    .map((f) => f.trim())
+    .filter(Boolean);
 }
 
 /** The resource kind a create/delete summary names (service, volume, …), if any. */
@@ -139,6 +158,19 @@ export function evaluatePlan(plan, { expected, expectedChanges = [] }) {
       fail(`${what}: ${c.summary}`);
       continue;
     }
+    if (c.kind === 'resource.update') {
+      const fields = changeFields(c);
+      const allowed = new Set(want.fields ?? []);
+      if (!fields || fields.length === 0) {
+        fail(`cannot tell which settings this update changes: ${c.summary}`);
+        continue;
+      }
+      const extra = fields.filter((f) => !allowed.has(f));
+      if (extra.length) {
+        fail(`update of ${c.target} changes settings outside the proposal: ${extra.join(', ')}`);
+        continue;
+      }
+    }
     seen.add(key(c));
     if (c.severity === 'destructive' && want.allowDestructive !== true) {
       fail(`destructive change not acknowledged (allowDestructive): ${c.summary}`);
@@ -156,10 +188,35 @@ export function evaluatePlan(plan, { expected, expectedChanges = [] }) {
     for (const n of names(plan.currentGraph, 'service')) {
       if (!desired.has(n)) fail(`desired graph drops live service ${n} (deletion or replacement)`);
     }
+    const wantedVolumes = expected.volumes ?? [];
+    const desiredVolumes = new Set(names(plan.desiredGraph, 'volume'));
+    for (const n of names(plan.currentGraph, 'volume')) {
+      if (!desiredVolumes.has(n))
+        fail(`desired graph drops live volume ${n} (its data would be deleted)`);
+    }
     for (const r of plan.desiredGraph.resources ?? []) {
-      if (r.type === 'volume') fail(`desired graph declares volume ${r.name}`);
-      if (r.volumeAttachments && Object.keys(r.volumeAttachments).length) {
-        fail(`desired graph attaches a volume to ${r.name}`);
+      if (r.type === 'volume') {
+        const want = wantedVolumes.find((v) => v.name === r.name);
+        if (!want) fail(`desired graph declares unexpected volume ${r.name}`);
+        else if (
+          (r.config?.region !== undefined && r.config.region !== want.region) ||
+          (r.config?.sizeMB !== undefined && r.config.sizeMB !== want.sizeMB)
+        ) {
+          fail(
+            `desired graph changes volume ${r.name} (expected ${want.sizeMB} MB in ${want.region})`,
+          );
+        }
+      }
+      const attached = Object.values(r.volumeAttachments ?? {});
+      if (attached.length) {
+        const wantVolume = expected.services[r.name]?.volume;
+        const mount = wantedVolumes.find((v) => v.name === wantVolume)?.mountPath;
+        const ok =
+          wantVolume &&
+          attached.length === 1 &&
+          String(attached[0].volume ?? '').replace(/^volume\./, '') === wantVolume &&
+          (attached[0].mountPath === undefined || attached[0].mountPath === mount);
+        if (!ok) fail(`desired graph attaches an unexpected volume to ${r.name}`);
       }
       const role = expected.services[r.name]?.role;
       if (role === 'api' && Object.keys(r.networking?.serviceDomains ?? {}).length) {

@@ -32,7 +32,8 @@
     "test:parity": "playwright test -c playwright.parity.config.ts",
     "railway:check": "tsc -p .railway && node scripts/railway/check-iac.mjs",
     "test:railway": "node --test scripts/railway/*.test.mjs",
-    "railway:plan-gate": "node scripts/railway/plan-gate.mjs"
+    "railway:plan-gate": "node scripts/railway/plan-gate.mjs",
+    "railway:deployments": "node scripts/railway/deployments.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "catalog:",

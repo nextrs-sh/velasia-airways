@@ -27,7 +27,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createRailwayContext, project } from 'railway/iac';
-import { EXPECTED } from './expected-production.mjs';
+import { APPLIED_STAGES, EXPECTED, STAGES, expectedFor } from './expected-production.mjs';
 import {
   checkCurrentState,
   compareChanges,
@@ -63,6 +63,25 @@ const current = checkCurrentState(base, {
 failures.push(...current.failures);
 warnings.push(...current.warnings);
 
+// M9.3: railway.ts's CURRENT must say the same stages are applied as expected-production.mjs.
+const flags = {
+  apiPersistence: mod.CURRENT?.apiPersistence === true,
+  clientTokens: mod.CURRENT?.clientTokens === true,
+  apiTokenEnforcement: mod.CURRENT?.apiTokenEnforcement === true,
+  deployPolicy: mod.CURRENT?.deployPolicy === true,
+  nextrsAllowlist:
+    mod.CURRENT?.nextrsNetAllowAddr !== undefined &&
+    mod.CURRENT.nextrsNetAllowAddr === mod.NEXTRS_NET_ALLOW_ADDR_INTENDED,
+};
+for (const name of Object.keys(STAGES)) {
+  const applied = APPLIED_STAGES.includes(name);
+  if (flags[name] !== applied) {
+    failures.push(
+      `stage ${name}: railway.ts CURRENT says ${flags[name] ? 'applied' : 'not applied'}, expected-production.mjs APPLIED_STAGES says ${applied ? 'applied' : 'not applied'}`,
+    );
+  }
+}
+
 // --- 3. Proposals --------------------------------------------------------------------------
 const proposalDir = join(root, '.railway/proposals');
 const proposals = existsSync(proposalDir)
@@ -77,6 +96,17 @@ for (const f of proposals) {
     failures.push(`${name}: must export a non-empty expectedChanges list`);
     continue;
   }
+  if (!STAGES[p.stage]) {
+    failures.push(`${name}: must export \`stage\`, one of ${Object.keys(STAGES).join(', ')}`);
+    continue;
+  }
+  if (APPLIED_STAGES.includes(p.stage)) {
+    failures.push(
+      `${name}: stage ${p.stage} is already applied (fold it in and delete the proposal)`,
+    );
+    continue;
+  }
+  const unmet = STAGES[p.stage].requires.filter((s) => !APPLIED_STAGES.includes(s));
   const def = await evaluate(p, sdk);
   const actual = definitionChanges(base, def);
   const { unexpected, missing } = compareChanges(actual, p.expectedChanges);
@@ -86,10 +116,14 @@ for (const f of proposals) {
   for (const c of actual) {
     if (c.kind === 'resource.delete') failures.push(`${name}: deletes ${c.target} (never allowed)`);
   }
-  const allowedTargets = new Set(p.expectedChanges.map((c) => c.target));
-  const r = checkCurrentState(def, { expected: EXPECTED, root, observed, allowedTargets });
+  // Production once this stage is applied: the rules hold the proposal to it, nothing else.
+  const staged = expectedFor([...APPLIED_STAGES, p.stage]);
+  const r = checkCurrentState(def, { expected: staged, root, observed });
   for (const m of r.failures) failures.push(`${name}: ${m}`);
-  console.log(`proposal ${name}: ${actual.map((c) => `${c.kind} ${c.target}`).join(', ')}`);
+  const blocked = unmet.length ? `  [BLOCKED until applied: ${unmet.join(', ')}]` : '';
+  console.log(
+    `proposal ${name} (stage ${p.stage}): ${actual.map((c) => `${c.kind} ${c.target}`).join(', ')}${blocked}`,
+  );
 }
 
 // --- 4. Dockerfiles --------------------------------------------------------------------------

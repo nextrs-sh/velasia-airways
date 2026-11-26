@@ -128,7 +128,7 @@ test('fails closed on unknown kinds, severities, wrong environment and unmanaged
 test('graph checks catch a volume or a public API domain even without a change entry', () => {
   const vol = fixture('noop');
   vol.desiredGraph.resources.push({ address: 'volume.data', type: 'volume', name: 'data' });
-  hasProblem(gate(vol), /declares volume data/);
+  hasProblem(gate(vol), /declares unexpected volume data/);
 
   const pub = fixture('noop');
   const api = pub.desiredGraph.resources.find((r) => r.name === '@velasia/retailing-api');

@@ -20,6 +20,10 @@ export const expectedChanges = [
   { kind: 'variable.set', target: `${SERVICES.nextrs}.NEXTRS_NET_ALLOW_ADDR` },
 ];
 
-export default defineRailway(() =>
-  production({ ...CURRENT, nextrsNetAllowAddr: NEXTRS_NET_ALLOW_ADDR_INTENDED }),
+/** The stage this proposal turns on (M9.3: stage 4; independent of the other stages). */
+export const stage = 'nextrsAllowlist';
+export const requires: string[] = [];
+
+export default defineRailway((ctx) =>
+  production({ ...CURRENT, nextrsNetAllowAddr: NEXTRS_NET_ALLOW_ADDR_INTENDED }, ctx),
 );
