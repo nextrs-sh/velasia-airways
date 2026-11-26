@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 /**
- * Series pre-warm of the shared API's offer store, then a check that both storefronts see the
- * same warm state (docs/deployment/railway-benchmark-readiness.md, "The shared API offer
- * store"). Run once per series, after seeding and before the first pair.
+ * Offer-cache diagnostic for the shared API (docs/deployment/M9.3-BENCHMARK-CORRECTNESS.md).
+ * Warms the offer store through both storefronts, then checks that both storefronts are handed
+ * the same offers inside one reuse window.
  *
  *   node benchmarks/railway/prewarm.mjs            (environment below; writes $OUT/prewarm.json)
  *
- * Why: with VELASIA_TODAY set, the API's clock is pinned, so an offer, once created for a key
- * (itinerary | adults | children | infants | inventory version | demand shift), is reused for
- * the life of the process. Whichever runtime asks first creates it; the other reuses it. After
- * this script every key the paired workloads can request exists, so both runtimes only reuse.
+ * M9.3: this NO LONGER makes offer workloads comparable, and pair.mjs refuses them. Until M9.1
+ * a pinned VELASIA_TODAY froze the API's clock, so an offer, once created for a key, was reused
+ * for the life of the process and one pre-warm kept the cache warm for a whole series. That was
+ * the frozen-clock bug: offers now expire in real time (reused for 60 s, valid 15 minutes), so
+ * the cache cools between 120 s runs and the second runtime of a pair can meet a different
+ * cache state than the first. What this script still shows, for planning cold/warm offer-cache
+ * experiments in an isolated environment: whether both storefronts reach the same offers
+ * within one window, and whether the business date is pinned.
  *
  * Steps (sequential, rate-capped, never both storefronts at once):
  *   1  every request URL of WORKLOADS for every fixture itinerary, through Node.js, then NextRS
@@ -102,14 +106,14 @@ const result = {
   requestsPerStorefront: paths.length,
   rate,
   assumptions: [
-    'VELASIA_TODAY pins the API clock: an offer for a key is reused for the life of the process',
+    'M9.3: VELASIA_TODAY pins the business date only; offers are reused for 60 s of real time and expire after 15 minutes',
     'offer key = itineraryId|adults|children|infants|inventoryVersion|demandShift (retailing-service.ts searchOffers)',
-    'paired workloads request adults=1, children=0, infants=0 only; no scenario header, so demandShift is constant',
-    'offers live in the API process memory only (never TalaDB); an API restart empties the store and invalidates the series',
-    'the store holds at most 20,000 offers; the pinned clock means no time-based expiry, only overflow eviction',
+    'offers live in the API process memory only (never TalaDB); an API restart empties the store',
+    'a warm state therefore lasts at most one 60 s reuse window: no pre-warm can hold it across a series of pairs',
   ],
   offerStore: {},
-  serverTimes: [],
+  referenceDates: [],
+  reuseWindowSeconds: 60,
   errors: [],
   mismatches: [],
 };
@@ -125,6 +129,7 @@ try {
     }
   }
   result.offerStore.afterWarm = await offerStore();
+  result.verifyStartedAt = performance.now();
   console.log(`verify: /api/offers for ${trips.length} itineraries on both storefronts`);
   for (const trip of trips) {
     const ids = {};
@@ -139,14 +144,16 @@ try {
         .map((o) => o.id)
         .sort()
         .join(',');
-      const serverTime = parsed.meta?.serverTime;
-      if (!result.serverTimes.includes(serverTime)) result.serverTimes.push(serverTime);
+      const referenceDate = parsed.meta?.referenceDate;
+      if (!result.referenceDates.includes(referenceDate)) result.referenceDates.push(referenceDate);
     }
     if (ids.node !== ids.nextrs) {
       result.mismatches.push({ itineraryId: trip.itineraryId, node: ids.node, nextrs: ids.nextrs });
     }
   }
   result.offerStore.afterVerify = await offerStore();
+  result.verifySeconds = (performance.now() - result.verifyStartedAt) / 1000;
+  delete result.verifyStartedAt;
 } catch (error) {
   result.errors.push(error.message);
 }
@@ -154,9 +161,11 @@ try {
 const s = result.offerStore;
 result.checks = {
   noErrors: result.errors.length === 0,
-  // A pinned clock answers one constant serverTime. A moving one means offers are reused for
-  // 60 s only: no pre-warm can hold, and offer workloads cannot be made equivalent this way.
-  apiClockPinned: result.serverTimes.length === 1 && Boolean(result.serverTimes[0]),
+  // One business date for every answer (VELASIA_TODAY pinned, or no day change meanwhile).
+  businessDateStable: result.referenceDates.length === 1 && Boolean(result.referenceDates[0]),
+  // Same offers on both only means "warm" if the whole check fits in one reuse window.
+  withinOneReuseWindow:
+    Number.isFinite(result.verifySeconds) && result.verifySeconds < result.reuseWindowSeconds,
   sameOffersOnBothStorefronts: result.mismatches.length === 0,
   storeStableDuringVerify:
     Number.isFinite(s.afterWarm?.offers) && s.afterVerify?.offers === s.afterWarm.offers,
@@ -172,10 +181,8 @@ console.log(
   `prewarm ${result.verified ? 'VERIFIED' : 'NOT VERIFIED'}: offer store ${s.before?.offers} → ${s.afterWarm?.offers} → ${s.afterVerify?.offers}; ` +
     `${result.mismatches.length} mismatches, ${result.errors.length} errors → ${join(out, 'prewarm.json')}`,
 );
-if (!result.checks.apiClockPinned) {
-  console.log(
-    `prewarm: the API clock is not pinned (${result.serverTimes.length} distinct serverTime values): ` +
-      'offers are reused for 60 s only, so offer workloads cannot be pre-warmed into an equivalent state',
-  );
-}
+console.log(
+  'prewarm: a warm offer cache lasts one 60 s reuse window (M9.3), so this result says nothing about ' +
+    'later runs; pair.mjs refuses the offers and comparison workloads.',
+);
 process.exit(result.verified ? 0 : 2);

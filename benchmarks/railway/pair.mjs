@@ -333,7 +333,9 @@ function runProblems(runtime) {
   const problems = k6Problems(run.k6, { rate: cfg.rate, seconds: cfg.seconds, cpu: run.cpu });
   if (run.gate?.wrote) problems.push('the run made the API write: not a read-only run');
   if (run.gate && run.gate.totals.offersCreated !== 0) {
-    problems.push(`${run.gate.totals.offersCreated} offers created: pre-warm the series`);
+    problems.push(
+      `${run.gate.totals.offersCreated} offers created: the shared offer cache changed`,
+    );
   }
   return problems;
 }

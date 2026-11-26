@@ -33,12 +33,21 @@ function k6Export(n = 300, o = {}) {
 const cpu = { cores: 0.1, peakCores: 0.2, runnerCores: 2, seconds: 60 };
 
 test('refusedWorkload: writes and the unvalidated Server Action are refused', () => {
-  assert.equal(refusedWorkload('offers'), undefined);
+  for (const allowed of ['static-assets', 'rsc', 'flight-search', 'route-handler']) {
+    assert.equal(refusedWorkload(allowed), undefined, allowed);
+  }
   assert.match(refusedWorkload('payment'), /changes shared state/);
   assert.match(refusedWorkload('checkout'), /changes shared state/);
   assert.match(refusedWorkload('mixed'), /changes shared state/);
   assert.match(refusedWorkload('server-action'), /excluded until/);
   assert.match(refusedWorkload('nope'), /unknown/);
+});
+
+test('refusedWorkload: offer-cache workloads are refused since M9.3 (real-time expiry)', () => {
+  for (const w of ['offers', 'comparison']) {
+    assert.match(refusedWorkload(w), /offer cache/);
+    assert.match(refusedWorkload(w), /cannot be made equal/);
+  }
 });
 
 test('durationSeconds reads k6 durations', () => {
