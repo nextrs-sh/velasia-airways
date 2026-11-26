@@ -9,3 +9,8 @@ d6cea92c080a7de965715e452d01550b84b3f0d6:apps/web/test/checkout.test.ts:generic-
 # is in the repository; the real ones live only in deployment secrets.
 cd1df5a8e4cb243aea5707f020bcf1ef8d5649f6:docs/deployment/runtime-parity-report.md:generic-api-key:16
 1ec3c699675f8709f839aa05923512365b4d8cb4:.gitleaksignore:generic-api-key:6
+# Reviewed false positive (M9.3, found by the post-merge CI run): the validation-evidence table
+# in docs/deployment/M9.3-FINAL-REPORT.md line 104 lists the local stack's settings, and the
+# words before the business-date variable read to gitleaks like a key assignment. It holds a
+# fictional date, not a secret; no token value is in the repository.
+c2d2a7261934190274a019041043fb9217433900:docs/deployment/M9.3-FINAL-REPORT.md:generic-api-key:104
