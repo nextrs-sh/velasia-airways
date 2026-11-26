@@ -192,12 +192,13 @@ What the benchmark does about it:
 1. Decide on the database. A fresh file per series (a non-destructive switch, see precondition 5) redeploys the API, so it needs the owner's go-ahead. **The first cloud series (M9.1)
    uses the deployed API and database as they are, read-only.** No switch, no reset, no
    redeploy.
-2. Record the deployments in a `deployments.json` copied from
-   [`deployments.example.json`](../../benchmarks/railway/deployments.example.json). For each
-   service, take the deployment ID, commit, region, replicas, CPU and memory limits and status
-   from Railway. Use `railway deployment list --json`, the dashboard, or the `RAILWAY_*`
-   variables in each container. The file is gitignored. Without it no pair can be comparable,
-   because the runner cannot read these values itself.
+2. Record the deployments in a `deployments.json` (format:
+   [`deployments.example.json`](../../benchmarks/railway/deployments.example.json)). Since M9.3
+   `pnpm railway:deployments --deployments-out deployments.json --cpu <vCPU> --memory-bytes
+<bytes>` writes it from `railway status --json` (step 5); take `--cpu` and `--memory-bytes`
+   from the live limits (`railway metrics -a --json`, `limit`), not from this document. The
+   file is gitignored. Without it no pair can be comparable, because the runner cannot read
+   these values itself.
 3. Run the public preflight from anywhere:
    `NODE_URL=… NEXTRS_URL=… node benchmarks/railway/preflight.mjs preflight.json`.
 4. Seed the fixtures from the runner, **itineraries only**:
@@ -342,7 +343,8 @@ run commands through `railway ssh`.
 - Variables: `RAILWAY_DOCKERFILE_PATH=benchmarks/railway/Dockerfile.runner`,
   `METRICS_TOKEN=${{shared.METRICS_TOKEN}}`,
   `RETAILING_API_SERVICE_TOKEN=${{shared.RETAILING_API_SERVICE_TOKEN}}`,
-  `API_URL=http://${{velasia-api.RAILWAY_PRIVATE_DOMAIN}}:4010`, and
+  `API_URL=http://velasiaretailing-api.railway.internal:4010` (the API's private endpoint, as in
+  `.railway/railway.ts`), and
   `NODE_URL` / `NEXTRS_URL` set to the two `https://` domains.
 - Storefront traffic goes to the public domains, so both runtimes are reached the same way,
   through Railway's edge. Record the edge behaviour (precondition 3).
@@ -353,8 +355,12 @@ run commands through `railway ssh`.
 
 ```bash
 # inside the runner (railway ssh --service velasia-bench-runner)
-node benchmarks/node-baseline/lib/seed.mjs "$API_URL" /tmp/fixtures.json        # before the series
-export FIXTURES=/tmp/fixtures.json API_CPU=1
+node benchmarks/node-baseline/lib/seed.mjs "$API_URL" /tmp/fixtures.json 0 0    # before the series: itineraries only
+# The API's limits come from the recorded DEPLOYMENTS file (pnpm railway:deployments
+# --deployments-out, step 5 of "Before the series"), never from a literal.
+export FIXTURES=/tmp/fixtures.json DEPLOYMENTS=/tmp/deployments.json
+export API_CPU=$(node -p "require(process.env.DEPLOYMENTS).services['velasia-api'].cpu")
+export API_MEMORY_MIB=$(node -p "Math.floor(require(process.env.DEPLOYMENTS).services['velasia-api'].memoryBytes / 2 ** 20)")
 export SERIES_BASELINE=/tmp/velasia-bench/round-1/static-assets/api-baseline.json   # after the first pair
 node benchmarks/railway/pair.mjs static-assets 1
 node benchmarks/railway/pair.mjs flight-search 1
@@ -367,7 +373,7 @@ the API with `--metrics-cmd`, through `railway ssh` into the API container:
 
 ```bash
 node benchmarks/railway/api-gate.mjs \
-  --metrics-cmd 'railway ssh --service velasia-api -- node - < benchmarks/railway/scrape-in-container.cjs' \
+  --metrics-cmd 'railway ssh --service @velasia/retailing-api -- node - < benchmarks/railway/scrape-in-container.cjs' \
   baseline --out baseline.json
 ```
 
@@ -398,19 +404,19 @@ internet from there. `pair.mjs` supports only the runner layout.
 5.75.0, `railway` SDK 3.17.0). The first cloud series confirmed each "Used" row on
 2026-11-25.
 
-| Topic                   | Finding                                                                                                                                                      | Status                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- |
-| Create the runner       | `railway add --repo nextrs-sh/velasia-airways --branch main --service velasia-bench-runner --variables …`. `RAILWAY_DOCKERFILE_PATH` selects the Dockerfile. | Used                   |
-| Runner placement        | The new service landed in the project's region (`iad`) with 1 replica and no domain; its cgroup limit was 2 vCPU / 0.93 GiB                                  | Used                   |
-| Resource limits         | No CLI flag. Use the dashboard: Settings → Deploy → Replica Limits. Read them with `railway metrics -a --json` (`limit`).                                    | Documented / used      |
-| Delete the runner       | `railway service delete --service velasia-bench-runner --yes`                                                                                                | Used                   |
-| Private DNS             | `<private endpoint>.railway.internal`; the endpoint is not always the service name (`@velasia/retailing-api` → `velasiaretailing-api`). IPv4 and IPv6.       | Used                   |
-| Private IPv4            | Interface `railnet0` is a `/9` (`10.128.0.0/9` here). A service's address can move to another /16 on redeploy (`10.228.x` → `10.146.x`).                     | Observed               |
-| Service metrics         | `railway metrics -s <svc> --cpu --memory --network --raw --json -S <iso> -U <iso>` gives 30 s samples. `--all` cannot be combined with `--raw`.              | Used                   |
-| Deployment identity     | `railway deployment list -s <svc> --json`: id, status, `meta.commitHash`, `meta.branch`                                                                      | Used                   |
-| Copy results out        | `railway ssh … -- sh -s` with a script that prints `tar -czf - … \| base64`. Check the SHA-256 on both sides.                                                | Used                   |
-| Cost                    | $20/vCPU-month and $10/GB-month, billed per minute; egress $0.05/GB. A 2 vCPU / 2 GB runner fully busy for 1 h is about $0.08.                               | Documented             |
-| Whole-project IaC apply | Deletes undeclared services. `railway config plan` on the current file shows 4 to add, 3 to destroy (report, section 11).                                    | Plan run (never apply) |
+| Topic                   | Finding                                                                                                                                                       | Status                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| Create the runner       | `railway add --repo nextrs-sh/velasia-airways --branch main --service velasia-bench-runner --variables …`. `RAILWAY_DOCKERFILE_PATH` selects the Dockerfile.  | Used                   |
+| Runner placement        | The new service landed in the project's region (`iad`) with 1 replica and no domain; its cgroup limit was 2 vCPU / 0.93 GiB                                   | Used                   |
+| Resource limits         | No CLI flag. Use the dashboard: Settings → Deploy → Replica Limits. Read them with `railway metrics -a --json` (`limit`).                                     | Documented / used      |
+| Delete the runner       | `railway service delete --service velasia-bench-runner --yes`                                                                                                 | Used                   |
+| Private DNS             | `<private endpoint>.railway.internal`; the endpoint is not always the service name (`@velasia/retailing-api` → `velasiaretailing-api`). IPv4 and IPv6.        | Used                   |
+| Private IPv4            | Interface `railnet0` is a `/9` (`10.128.0.0/9` here). A service's address can move to another /16 on redeploy (`10.228.x` → `10.146.x`).                      | Observed               |
+| Service metrics         | `railway metrics -s <svc> --cpu --memory --network --raw --json -S <iso> -U <iso>` gives 30 s samples. `--all` cannot be combined with `--raw`.               | Used                   |
+| Deployment identity     | `railway deployment list -s <svc> --json`: id, status, `meta.commitHash`, `meta.branch`                                                                       | Used                   |
+| Copy results out        | `railway ssh … -- sh -s` with a script that prints `tar -czf - … \| base64`. Check the SHA-256 on both sides.                                                 | Used                   |
+| Cost                    | $20/vCPU-month and $10/GB-month, billed per minute; egress $0.05/GB. A 2 vCPU / 2 GB runner fully busy for 1 h is about $0.08.                                | Documented             |
+| Whole-project IaC apply | Deletes undeclared services. Since M9.2 `.railway/railway.ts` plans as a no-op (`pnpm railway:plan-gate`); a runner created by hand would plan as a deletion. | Plan run (never apply) |
 
 ## What to record for every run
 
@@ -454,17 +460,19 @@ latency and resource use at that rate, never a throughput ceiling:
 ```bash
 # inside the runner, after "Before the series"
 export FIXTURES=/tmp/fixtures.json DEPLOYMENTS=/tmp/deployments.json
-export API_CPU=1 API_MEMORY_MIB=768 RATE=2 WARMUP=30s DURATION=60s
+export API_CPU=$(node -p "require(process.env.DEPLOYMENTS).services['velasia-api'].cpu")
+export API_MEMORY_MIB=$(node -p "Math.floor(require(process.env.DEPLOYMENTS).services['velasia-api'].memoryBytes / 2 ** 20)")
+export RATE=2 WARMUP=30s DURATION=60s
 SERIES_START=1 node benchmarks/railway/pair.mjs static-assets 1      # round 1: Node.js first
 export SERIES_BASELINE=/tmp/velasia-bench/round-1/static-assets/api-baseline.json
 node benchmarks/railway/pair.mjs static-assets 2                     # round 2: NextRS first
 node benchmarks/railway/pair.mjs rsc 1 && node benchmarks/railway/pair.mjs rsc 2
-node benchmarks/railway/pair.mjs offers 1 && node benchmarks/railway/pair.mjs offers 2
 ```
 
 At 10 iterations/s for 90 s, one run sends about 900 requests. A pair is about 2 × (warm-up +
-measured) plus recovery, about 6 to 10 minutes. The workloads in order: `static-assets`, `rsc`,
-`home`, `destination`, `cached`; then `route-handler`, `offers`, `comparison`, `flight-search`.
+measured) plus recovery, about 6 to 10 minutes. The paired workloads in order: `static-assets`,
+`rsc`, `home`, `destination`, `cached`; then `route-handler`, `flight-search`. `offers` and
+`comparison` are not paired since M9.3 (`pair.mjs` refuses them; see the offer-cache section).
 
 **Stop the series** in any of these cases:
 
